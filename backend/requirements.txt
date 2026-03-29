@@ -5,9 +5,7 @@ python-dotenv
 httpx
 sqlalchemy
 asyncpg
-greenlet
 python-multipart
-Pillow
 edge-tts
 yfinance
 pandas
