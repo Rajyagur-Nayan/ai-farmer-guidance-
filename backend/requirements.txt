@@ -11,4 +11,5 @@ yfinance
 pandas
 cachetools
 requests
-google-generativeai==0.5.4
+google-generativeai>=0.8.0
+protobuf==5.26.1
