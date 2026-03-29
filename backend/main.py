@@ -264,6 +264,10 @@ async def get_history(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(ActivityLog).order_by(ActivityLog.timestamp.desc()))
     return result.scalars().all()
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.get("/")
 async def root(): return {"message": "Smart Farmer AI System Active"}
 
