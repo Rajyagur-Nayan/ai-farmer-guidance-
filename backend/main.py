@@ -43,8 +43,14 @@ app.include_router(money_router)
 app.include_router(scheme_router)
 app.include_router(marketplace_router)
 
+# --- DIRECTORY INITIALIZATION ---
+# Create 'uploads' folder explicitly to prevent startup failures on Render.
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
 # Mount Static Files for Uploads
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Initialize AI Clients
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -56,22 +62,33 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 
-# --- DATABASE INIT ---
+# --- DATABASE STARTUP ENGINES ---
 @app.on_event("startup")
 async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    # Add initial mock data for advisory history if empty
-    async with AsyncSession(engine) as db:
-        result = await db.execute(select(AdvisorySession).limit(1))
-        if not result.scalars().first():
-            db.add_all([
-                AdvisorySession(farmer_name="Suresh Patel", issue_description="Cotton leaf yellowing", status="Pending", cost=200.0),
-                AdvisorySession(farmer_name="Meena Devi", issue_description="Wheat crop growth issues", status="Pending", cost=150.0),
-                AdvisorySession(farmer_name="Ramesh Singh", issue_description="Soil testing help needed", status="Pending", cost=300.0)
-            ])
-            await db.commit()
+    """
+    Stabilizes the database on startup.
+    Will output errors specifically in the logs if connection fails.
+    """
+    try:
+        async with engine.begin() as conn:
+            # Sync metadata to the database
+            await conn.run_sync(Base.metadata.create_all)
+        print("DATABASE PROTOCOL: Table Metadata Synced Successfully.")
+        
+        # Add initial mock data for advisory history if empty
+        async with AsyncSession(engine) as db:
+            result = await db.execute(select(AdvisorySession).limit(1))
+            if not result.scalars().first():
+                db.add_all([
+                    AdvisorySession(farmer_name="Suresh Patel", issue_description="Cotton leaf yellowing", status="Pending", cost=200.0),
+                    AdvisorySession(farmer_name="Meena Devi", issue_description="Wheat crop growth issues", status="Pending", cost=150.0),
+                    AdvisorySession(farmer_name="Ramesh Singh", issue_description="Soil testing help needed", status="Pending", cost=300.0)
+                ])
+                await db.commit()
+    except Exception as e:
+        # Critical for Render Troubleshooting
+        print(f"CRITICAL STARTUP FAILURE: {e}")
+        # We don't raise the error here to allow the server to potentially stay alive for log inspection.
 
 # --- AI PROMPTS ---
 
@@ -142,7 +159,7 @@ class HistorySchema(BaseModel):
 
 @app.post("/chat")
 async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
-    if not client: raise HTTPException(status_code=500, detail="Groq API not initialized.")
+    if not client: raise HTTPException(status_code=500, detail="AI link not initialized.")
     completion = client.chat.completions.create(
         model="llama-3.3-70b-versatile", 
         messages=[{"role": "system", "content": TEXT_CHAT_PROMPT}, {"role": "user", "content": request.message}], 
@@ -160,11 +177,11 @@ async def analyze_image(file: UploadFile = File(...), db: AsyncSession = Depends
     """
     try:
         if not GEMINI_API_KEY:
-            raise HTTPException(status_code=503, detail="Gemini API Key missing.")
+            raise HTTPException(status_code=503, detail="Stability failure: Vision uplink offline.")
 
         contents = await file.read()
         if len(contents) > 5 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="File too large (Max 5MB).")
+            raise HTTPException(status_code=400, detail="Data packet too large (Max 5MB).")
 
         # Gemini Analysis
         model = genai.GenerativeModel("gemini-2.0-flash")
@@ -174,7 +191,7 @@ async def analyze_image(file: UploadFile = File(...), db: AsyncSession = Depends
         ])
 
         if not response.text:
-            raise Exception("Empty interpretation received.")
+            raise Exception("No interpretation received.")
 
         response_text = response.text
         analysis_points = [line.strip() for line in response_text.split("\n") if line.strip()]
@@ -185,8 +202,8 @@ async def analyze_image(file: UploadFile = File(...), db: AsyncSession = Depends
         
         return {"analysis": analysis_points}
     except Exception as e:
-        print(f"Vision Error: {e}")
-        return {"analysis": ["Service Notification: Analysis systems are stabilizing.", "Please re-upload image.", "If the issue is severe, consult local agriculture expert."]}
+        print(f"Vision Analysis Core Error: {e}")
+        return {"analysis": ["System Status: Analysis engine stabilizing.", "Please attempt re-upload.", "Manual verification required."]}
 
 
 @app.post("/voice")
@@ -195,7 +212,7 @@ async def voice_chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     Handles voice-to-text queries with rapid AI responses.
     """
     if not client: 
-        raise HTTPException(status_code=500, detail="Groq API not initialized.")
+        raise HTTPException(status_code=500, detail="Core AI offline.")
     
     try:
         completion = client.chat.completions.create(
@@ -252,4 +269,6 @@ async def root(): return {"message": "Smart Farmer AI System Active"}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use port from environment for local testing flexibility
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

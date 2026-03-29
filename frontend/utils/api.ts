@@ -2,9 +2,12 @@ import { syncManager } from "./syncManager";
 
 /**
  * 🌾 Smart Farmer API Service Configuration
- * Use 127.0.0.1 explicitly to avoid Windows IPv6 (::1) localhost resolution conflicts.
+ * Production: https://ai-farmer-guidance.onrender.com
+ * Local: http://127.0.0.1:8000
  */
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = process.env.NODE_ENV === 'production' 
+  ? "https://ai-farmer-guidance.onrender.com" 
+  : "http://127.0.0.1:8000";
 
 /**
  * Utility to handle caching for GET requests
