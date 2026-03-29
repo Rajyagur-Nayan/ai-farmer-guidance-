@@ -5,9 +5,10 @@ import { syncManager } from "./syncManager";
  * Production: https://ai-farmer-guidance.onrender.com
  * Local: http://127.0.0.1:8000
  */
-const BACKEND_URL = process.env.NODE_ENV === 'production' 
-  ? "https://ai-farmer-guidance.onrender.com" 
-  : "http://127.0.0.1:8000";
+const BACKEND_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://ai-farmer-guidance.onrender.com"
+    : "http://127.0.0.1:8000";
 
 /**
  * Utility to handle caching for GET requests
@@ -101,7 +102,7 @@ export const apiService = {
   }) => {
     if (typeof window !== "undefined" && !navigator.onLine) {
       syncManager.addRequest("/profile", "POST", data);
-      setCache("profile", data); 
+      setCache("profile", data);
       return data;
     }
 
@@ -189,7 +190,9 @@ export const apiService = {
    */
   getWeather: async (lat: number, lon: number) => {
     try {
-      const response = await fetch(`${BACKEND_URL}/weather?lat=${lat}&lon=${lon}`);
+      const response = await fetch(
+        `${BACKEND_URL}/weather?lat=${lat}&lon=${lon}`,
+      );
       if (!response.ok) throw new Error("Weather service unreachable.");
       return await response.json();
     } catch (error) {
@@ -208,7 +211,8 @@ export const apiService = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!response.ok) throw new Error("Financial advisor service unreachable.");
+      if (!response.ok)
+        throw new Error("Financial advisor service unreachable.");
       return await response.json();
     } catch (error) {
       console.error("Money Advisor API Error:", error);
@@ -254,15 +258,18 @@ export const apiService = {
   /**
    * Fetches all marketplace products with optional filters
    */
-  getProducts: async (filters: { category?: string; location?: string } = {}) => {
+  getProducts: async (
+    filters: { category?: string; location?: string } = {},
+  ) => {
     try {
       const { category, location } = filters;
       let url = `${BACKEND_URL}/marketplace/products?`;
       if (category) url += `category=${category}&`;
       if (location) url += `location=${location}`;
-      
+
       const response = await fetch(url);
-      if (!response.ok) throw new Error("Could not fetch marketplace products.");
+      if (!response.ok)
+        throw new Error("Could not fetch marketplace products.");
       return await response.json();
     } catch (error) {
       console.error("Marketplace Fetch Error:", error);
