@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Navigate to backend folder
-WORKDIR /app/backend
+WORKDIR /app
 
 # Use PORT=10000
 ENV PORT=8000
