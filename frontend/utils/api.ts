@@ -1,7 +1,7 @@
 import { syncManager } from "./syncManager";
 
 /**
- * 🏥 Clinical API Service Configuration
+ * 🌾 Smart Farmer API Service Configuration
  * Use 127.0.0.1 explicitly to avoid Windows IPv6 (::1) localhost resolution conflicts.
  */
 const BACKEND_URL = "http://127.0.0.1:8000";
@@ -53,25 +53,6 @@ export const apiService = {
   },
 
   /**
-   * Fetches nearby hospitals based on symptoms and location
-   */
-  getSmartHospitals: async (text: string, lat: number, lng: number, category: string = "All") => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/smart-hospitals`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, lat, lng, category }),
-      });
-
-      if (!response.ok) throw new Error("Failed to fetch nearby hospitals");
-      return await response.json();
-    } catch (error) {
-      console.error("Hospital Finder Error:", error);
-      throw error;
-    }
-  },
-
-  /**
    * Sends a message to the AI voice backend
    */
   sendVoiceMessage: async (message: string): Promise<{ response: string }> => {
@@ -90,7 +71,7 @@ export const apiService = {
   },
 
   /**
-   * Fetches the user health profile (with caching)
+   * Fetches the farmer profile (with caching)
    */
   getProfile: async () => {
     const cache = getCache("profile");
@@ -107,12 +88,17 @@ export const apiService = {
   },
 
   /**
-   * Updates the user health profile
+   * Updates the farmer profile
    */
-  updateProfile: async (data: any) => {
+  updateProfile: async (data: {
+    age?: number;
+    gender?: string;
+    location?: string;
+    farming_type?: string;
+  }) => {
     if (typeof window !== "undefined" && !navigator.onLine) {
       syncManager.addRequest("/profile", "POST", data);
-      setCache("profile", data); // Optimistic cache update
+      setCache("profile", data); 
       return data;
     }
 
@@ -133,7 +119,7 @@ export const apiService = {
   },
 
   /**
-   * Fetches all medical history (with caching)
+   * Fetches all activity history (with caching)
    */
   getHistory: async () => {
     const cache = getCache("history");
@@ -150,37 +136,15 @@ export const apiService = {
   },
 
   /**
-   * Fetches AI-based medication advice
-   */
-  getMedicationAdvice: async (
-    message: string,
-  ): Promise<{ response: string }> => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/medication-advice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
-      if (!response.ok) throw new Error("Failed to get medication advice");
-      return await response.json();
-    } catch (error) {
-      console.error("Medication API Error:", error);
-      throw error;
-    }
-  },
-
-  /**
    * Sends an image to the AI vision backend
    */
   analyzeImage: async (file: File): Promise<{ analysis: string[] }> => {
     try {
-      if (!file) throw new Error("Protocol Error: No sequence provided.");
+      if (!file) throw new Error("Error: No image provided.");
 
       const formData = new FormData();
       formData.append("file", file);
 
-      // Note: We DO NOT set 'Content-Type' header here.
-      // The browser must automatically set it to 'multipart/form-data' with the correct boundary.
       const response = await fetch(`${BACKEND_URL}/analyze-image`, {
         method: "POST",
         body: formData,
@@ -188,116 +152,15 @@ export const apiService = {
 
       if (!response.ok) {
         const errText = await response.text();
-        throw new Error(errText || "Vision Link Failure.");
+        throw new Error(errText || "Analysis Link Failure.");
       }
 
       return await response.json();
     } catch (error) {
       console.error("Vision Analysis Error:", error);
-      // Propagate a user-friendly error
       throw new Error(
         "Unable to establish vision uplink. Check backend availability.",
       );
-    }
-  },
-
-  /**
-   * Fetches the active consultation queue (with caching)
-   */
-  getQueue: async () => {
-    const cache = getCache("doctor_queue");
-    try {
-      const response = await fetch(`${BACKEND_URL}/consultations/queue`);
-      if (!response.ok) throw new Error("Failed to fetch patient queue");
-      const data = await response.json();
-      setCache("doctor_queue", data);
-      return data;
-    } catch (error) {
-      if (cache) return cache;
-      throw error;
-    }
-  },
-
-  /**
-   * Marks a consultation as Active
-   */
-  startConsultation: async (id: number) => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/consultations/${id}/start`, {
-        method: "POST",
-      });
-      if (!response.ok) throw new Error("Failed to start session");
-      return await response.json();
-    } catch (error) {
-      console.error("Consultation Start Error:", error);
-      throw error;
-    }
-  },
-
-  /**
-   * Issues a digital prescription
-   */
-  issuePrescription: async (data: {
-    consultation_id: number;
-    medication_details: string;
-  }) => {
-    if (typeof window !== "undefined" && !navigator.onLine) {
-      syncManager.addRequest("/prescriptions", "POST", data);
-      return { status: "Queued" };
-    }
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/prescriptions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to issue prescription");
-      return await response.json();
-    } catch (error) {
-      console.error("Prescription Issuance Error:", error);
-      throw error;
-    }
-  },
-
-  /**
-   * Fetches total doctor earnings (with caching)
-   */
-  getEarnings: async () => {
-    const cache = getCache("doctor_earnings");
-    try {
-      const response = await fetch(`${BACKEND_URL}/doctor/earnings`);
-      if (!response.ok) throw new Error("Failed to fetch earnings");
-      const data = await response.json();
-      setCache("doctor_earnings", data);
-      return data;
-    } catch (error) {
-      if (cache) return cache;
-      throw error;
-    }
-  },
-  /**
-   * Books a medical appointment
-   */
-  bookAppointment: async (data: {
-    patient_name: string;
-    hospital_name: string;
-    specialty?: string;
-    appointment_date: string;
-    appointment_time: string;
-    reason?: string;
-  }) => {
-    try {
-      const response = await fetch(`${BACKEND_URL}/appointments/book`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to book appointment");
-      return await response.json();
-    } catch (error) {
-      console.error("Booking Error:", error);
-      throw error;
     }
   },
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Clock, MessageSquare, ChevronRight, Calendar, Search, Filter, Loader2, Database, Trash2 } from 'lucide-react';
+import { Clock, Database, ChevronRight, Calendar, Search, Filter, Loader2, Trash2, Sprout } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -59,7 +59,7 @@ const History: React.FC = () => {
       <div className="flex flex-col sm:flex-row gap-6 justify-between items-center bg-white p-6 rounded-2xl border border-zinc-50 shadow-sm shadow-zinc-100/50">
         <div className="relative w-full sm:w-96 group">
           <Input 
-            placeholder="Search localized records..." 
+            placeholder="Search farm records..." 
             className="pl-12 h-14 bg-zinc-50 border-zinc-100 rounded-2xl font-semibold text-sm placeholder: focus:bg-white transition-all"
           />
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-300 pointer-events-none group-focus-within:text-primary-900 transition-colors" />
@@ -92,10 +92,9 @@ const History: React.FC = () => {
               <div className="flex items-center gap-6 flex-1">
                 <div className={`
                   w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-lg border-2
-                  ${item.category === 'Emergency' ? 'bg-red-600 border-red-600 text-white' : 
-                    item.category === 'Consultation' ? 'bg-primary-600 border-black text-white' : 'bg-white border-zinc-100 text-primary-900'}
+                  ${item.category === 'Consultation' ? 'bg-primary-600 border-black text-white' : 'bg-white border-zinc-100 text-primary-900'}
                 `}>
-                  <Database className="w-6 h-6" />
+                  <Sprout className="w-6 h-6" />
                 </div>
                 
                 <div className="flex-1 min-w-0">
@@ -103,10 +102,9 @@ const History: React.FC = () => {
                     <h4 className="font-semibold text-primary-900 tracking-tight text-lg">{item.title}</h4>
                     <span className={`
                       text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-widest
-                      ${item.category === 'Emergency' ? 'bg-red-50 text-red-600 border border-red-100' : 
-                        item.category === 'Consultation' ? 'bg-zinc-100 text-primary-900' : 'bg-white text-zinc-400 border border-zinc-100'}
+                      ${item.category === 'Consultation' ? 'bg-zinc-100 text-primary-900' : 'bg-white text-zinc-400 border border-zinc-100'}
                     `}>
-                      {item.category}
+                      {item.category === 'Consultation' ? 'Advisory Session' : item.category}
                     </span>
                   </div>
                   <p className="text-zinc-500 font-bold text-xs truncate max-w-sm  opacity-50">{item.content.split('\n')[0]}</p>
@@ -134,14 +132,14 @@ const History: React.FC = () => {
                 <div className="bg-white rounded-3xl p-8 space-y-6 shadow-inner border border-zinc-100">
                   <div className="flex items-center justify-between">
                       <h5 className="text-sm font-semibold uppercase tracking-[0.3em] text-zinc-300">Detailed Transcript</h5>
-                      <span className="text-xs font-semibold text-zinc-200">ID: REQ-{item.id}</span>
+                      <span className="text-xs font-semibold text-zinc-200">ID: LOG-{item.id}</span>
                   </div>
                   <p className="text-primary-900 text-sm leading-relaxed font-bold whitespace-pre-wrap">
                     {item.content}
                   </p>
                   <div className="flex flex-wrap gap-3 pt-6 border-t border-zinc-50">
                     <Button variant="outline" className="flex-1 sm:flex-none border-zinc-100 rounded-xl font-semibold text-sm uppercase tracking-widest hover:bg-zinc-50 py-6">Export PDF</Button>
-                    <Button className="flex-1 sm:flex-none bg-primary-600 text-white hover:bg-zinc-900 rounded-xl font-semibold text-sm uppercase tracking-widest py-6 shadow-xl shadow-zinc-100">Sync with Clinic</Button>
+                    <Button className="flex-1 sm:flex-none bg-primary-600 text-white hover:bg-zinc-900 rounded-xl font-semibold text-sm uppercase tracking-widest py-6 shadow-xl shadow-zinc-100 text-xs">Share With Expert</Button>
                   </div>
                 </div>
               </div>
@@ -156,13 +154,13 @@ const History: React.FC = () => {
           <div className="w-20 h-20 bg-zinc-50 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-zinc-100">
             <Clock className="w-10 h-10 text-zinc-200" />
           </div>
-          <h4 className="text-primary-900 font-semibold text-xl mb-1 ">No Local Records Found</h4>
-          <p className="text-zinc-400 font-bold text-xs uppercase tracking-widest px-8">Localized storage is currently empty. Start a consultation to begin sync.</p>
+          <h4 className="text-primary-900 font-semibold text-xl mb-1 ">No Records Found</h4>
+          <p className="text-zinc-400 font-bold text-xs uppercase tracking-widest px-8">Activity log is currently empty. Start a chat or analysis to begin.</p>
         </div>
       )}
 
       <div className="pt-16 text-center opacity-10">
-          <p className="text-xs font-semibold uppercase tracking-[1em] text-primary-900">Historical Medical Core V2</p>
+          <p className="text-xs font-semibold uppercase tracking-[1em] text-primary-900">Agricultural Activity Log v4.0</p>
       </div>
     </div>
   );

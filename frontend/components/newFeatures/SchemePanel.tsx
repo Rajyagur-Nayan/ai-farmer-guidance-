@@ -11,7 +11,8 @@ import {
   Filter,
   Users,
   Briefcase,
-  MapPin
+  MapPin,
+  AlertCircle
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';

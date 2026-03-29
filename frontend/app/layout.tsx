@@ -7,8 +7,8 @@ import OfflineIndicator from "@/components/OfflineIndicator";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Rural Health AI | Professional Protocol",
-  description: "Advanced AI-Powered Rural Healthcare Solutions with Offline Resilience.",
+  title: "Smart Farmer AI | Professional Agriculture Hub",
+  description: "Advanced AI-Powered Agricultural Intelligence for Modern Farming.",
 };
 
 export default function RootLayout({

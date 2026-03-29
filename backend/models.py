@@ -2,16 +2,16 @@ from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKe
 from datetime import datetime
 from database import Base
 
-class Profile(Base):
+class FarmerProfile(Base):
     __tablename__ = "profiles"
     id = Column(Integer, primary_key=True, index=True)
     age = Column(Integer, nullable=True)
     gender = Column(String(20), nullable=True)
-    weight = Column(Float, nullable=True)
-    health_info = Column(Text, nullable=True)
+    location = Column(String(100), nullable=True)
+    farming_type = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-class MedicalHistory(Base):
+class ActivityLog(Base):
     __tablename__ = "history"
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=True)
@@ -19,30 +19,18 @@ class MedicalHistory(Base):
     category = Column(String(50), default="General")
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-class Consultation(Base):
+class AdvisorySession(Base):
     __tablename__ = "consultations"
     id = Column(Integer, primary_key=True, index=True)
-    patient_name = Column(String(255), nullable=False)
-    symptoms = Column(Text, nullable=True)
+    farmer_name = Column(String(255), nullable=False)
+    issue_description = Column(Text, nullable=True)
     status = Column(String(50), default="Pending") # Pending, Active, Completed
-    earnings = Column(Float, default=0.0)
+    cost = Column(Float, default=0.0)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-class Prescription(Base):
+class Recommendation(Base):
     __tablename__ = "prescriptions"
     id = Column(Integer, primary_key=True, index=True)
-    consultation_id = Column(Integer, ForeignKey("consultations.id"))
-    medication_details = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-class Appointment(Base):
-    __tablename__ = "appointments"
-    id = Column(Integer, primary_key=True, index=True)
-    patient_name = Column(String(255), nullable=False)
-    hospital_name = Column(String(255), nullable=False)
-    specialty = Column(String(100), nullable=True)
-    appointment_date = Column(String(50), nullable=False)
-    appointment_time = Column(String(50), nullable=False)
-    reason = Column(Text, nullable=True)
-    status = Column(String(50), default="Confirmed")
+    session_id = Column(Integer, ForeignKey("consultations.id"))
+    advice_details = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)

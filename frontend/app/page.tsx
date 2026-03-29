@@ -16,7 +16,6 @@ import {
   PiggyBank, 
   ShieldCheck, 
   ShoppingCart, 
-  Users,
   Activity,
   PhoneCall
 } from 'lucide-react';
@@ -73,39 +72,11 @@ export default function FarmerHome() {
             accentColor: "bg-cyan-500"
         },
         {
-            title: "Crop Advisory 🌾",
-            description: "Personalized seasonal guidance on sowing patterns, fertilizer usage, and yield optimization.",
-            icon: Leaf,
-            route: "/advisory-dashboard",
-            accentColor: "bg-green-600"
-        },
-        {
-            title: "Money Advisor 💰",
-            description: "AI-driven financial strategies to maximize crop profitability and safely invest your income.",
-            icon: PiggyBank,
-            route: "/farmer-tools",
-            accentColor: "bg-yellow-500"
-        },
-        {
-            title: "Govt Schemes 🏛",
-            description: "Centralized database mapping your profile to relevant subsidies and financial support.",
-            icon: ShieldCheck,
-            route: "/farmer-tools",
-            accentColor: "bg-rose-500"
-        },
-        {
             title: "Marketplace 🛒",
             description: "Peer-to-peer farmer exchange. Buy and sell crops, livestock, seeds, and heavy machinery.",
             icon: ShoppingCart,
             route: "/marketplace",
             accentColor: "bg-indigo-500"
-        },
-        {
-            title: "Farmer Network 🤝",
-            description: "Connect regionally with other farmers for cooperative resource sharing and localized help.",
-            icon: Users,
-            route: "/network",
-            accentColor: "bg-orange-500"
         }
     ];
 
