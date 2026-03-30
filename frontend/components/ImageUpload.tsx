@@ -81,8 +81,8 @@ const ImageUpload: React.FC = () => {
                             <Upload className="text-white w-6 h-6" />
                         </div>
                         <div>
-                            <h3 className="text-2xl font-bold text-primary-900 leading-none">Upload Crop Photo 📸</h3>
-                            <p className="text-sm font-semibold text-primary-400 mt-1">Plant Analysis Core</p>
+                            <h3 className="text-2xl font-black text-primary-900 leading-none uppercase italic">Scan Crop Identity 🩺</h3>
+                            <p className="text-[10px] font-black text-primary-400 uppercase tracking-widest mt-2 overflow-hidden">Agri-Vision Core v4.2</p>
                         </div>
                     </div>
 
@@ -119,15 +119,10 @@ const ImageUpload: React.FC = () => {
                             </>
                         ) : (
                             <div className="text-center space-y-6 p-10">
-                                <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center border border-medical-border shadow-medical group-hover/upload:rotate-6 transition-all duration-500">
-                                    <ImageIcon className="w-10 h-10 text-primary-500" />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-primary-900 text-xl tracking-tight">Upload a Crop Image</h4>
-                                    <p className="text-sm text-medical-textSecondary mt-2 max-w-[200px] mx-auto opacity-80">
-                                        Identify pests, diseases, or soil issues
+                                    <h4 className="font-bold text-primary-900 text-xl tracking-tight">Scan Crop Identity 🩺</h4>
+                                    <p className="text-sm text-primary-400 mt-2 max-w-[200px] mx-auto opacity-80 italic">
+                                        Identify leaf patterns, pests, or nutrient deficiencies
                                     </p>
-                                </div>
                                 <div className="pt-4">
                                     <Button variant="secondary" size="sm" className="pointer-events-none">
                                         Choose File
@@ -179,8 +174,8 @@ const ImageUpload: React.FC = () => {
                             <Activity className="text-medical-green w-6 h-6" />
                         </div>
                         <div>
-                            <h3 className="text-2xl font-bold text-primary-900 leading-none">Crop Analysis 📝</h3>
-                            <p className="text-sm font-semibold text-medical-green mt-1">Farming Advice</p>
+                            <h3 className="text-2xl font-black text-primary-900 leading-none uppercase italic">Field Signature 📝</h3>
+                            <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mt-2">Farming Intelligence Hub</p>
                         </div>
                     </div>
 
@@ -210,8 +205,8 @@ const ImageUpload: React.FC = () => {
 
                             {loading ? (
                                 <div className="flex-1 flex flex-col items-center justify-center gap-4">
-                                    <Loader2 className="w-12 h-12 text-primary-500 animate-spin" />
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary-400">Growth Audit in progress...</p>
+                                    <Loader2 className="w-12 h-12 text-primary-900 animate-spin" />
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-primary-400">Pest Signature Audit...</p>
                                 </div>
                             ) : (
                                 <div className="flex-1 flex flex-col justify-between overflow-hidden">

@@ -7,6 +7,7 @@ from groq import Groq
 import httpx
 import asyncio
 import random
+from services.weather_service import WeatherService
 
 # Cache for 10 minutes
 market_cache = TTLCache(maxsize=100, ttl=600)
@@ -55,15 +56,19 @@ class MarketService:
         }
 
     @staticmethod
-    def get_global_trend(crop: str):
+    async def get_global_trend(crop: str):
         """
-        Fetches global trend from Yahoo Finance.
+        Fetches global trend from Yahoo Finance (Thread-safe).
         """
         ticker_symbol = TICKER_MAP.get(crop, "DBA")
         try:
-            ticker = yf.Ticker(ticker_symbol)
-            # Fetch minimal data for speed
-            hist = ticker.history(period="7d")
+            # Run blocking yfinance in a thread
+            def fetch():
+                ticker = yf.Ticker(ticker_symbol)
+                return ticker.history(period="7d")
+            
+            hist = await asyncio.to_thread(fetch)
+            
             if hist.empty or len(hist) < 2:
                 return {"current": "N/A", "trend": "steady", "history": []}
             
@@ -122,24 +127,143 @@ class MarketService:
         if "all_market_data" in market_cache:
             return market_cache["all_market_data"]
             
-        result = {}
+        async def fetch_single_crop(crop):
+            mandi = await MarketService.get_mandi_price(crop)
+            global_data = await MarketService.get_global_trend(crop)
+            # Use faster model for batch list or just heuristic for the main list
+            advice = f"Market for {crop} is currently {global_data['trend']}."
+            
+            return {
+                "crop": crop,
+                "mandi_price": mandi["price"],
+                "mandi_name": mandi["mandi"],
+                "trend": global_data["trend"],
+                "global_price": global_data["current"],
+                "advice": advice,
+                "history": global_data["history"]
+            }
+
+        tasks = []
         for cat, crops in categories.items():
-            result[cat] = []
             for crop in crops:
-                # We can run these in parallel if needed, but simple loop for stability
-                mandi = await MarketService.get_mandi_price(crop)
-                global_data = MarketService.get_global_trend(crop)
-                advice = await MarketService.get_ai_advice(crop, mandi["price"], global_data["trend"])
-                
-                result[cat].append({
-                    "crop": crop,
-                    "mandi_price": mandi["price"],
-                    "mandi_name": mandi["mandi"],
-                    "trend": global_data["trend"],
-                    "global_price": global_data["current"],
-                    "advice": advice,
-                    "history": global_data["history"]
-                })
+                tasks.append(fetch_single_crop(crop))
+        
+        # Parallelize all 10 crops
+        all_crops_data = await asyncio.gather(*tasks)
+        
+        # Reconstruct categories
+        result = {cat: [] for cat in categories}
+        data_map = {d["crop"]: d for d in all_crops_data}
+        
+        for cat, crops in categories.items():
+            for crop in crops:
+                if crop in data_map:
+                    result[cat].append(data_map[crop])
         
         market_cache["all_market_data"] = result
         return result
+
+    @staticmethod
+    async def get_smart_money_advice(crop: str, lat: float = None, lon: float = None):
+        """
+        Comprehensive financial advisor for farmers.
+        """
+        # 1. Fetch Basic Data
+        mandi = await MarketService.get_mandi_price(crop)
+        global_data = await MarketService.get_global_trend(crop)
+        
+        # 2. Trend Logic
+        current_val = 0
+        prev_val = 0
+        history = global_data.get("history", [])
+        if len(history) >= 2:
+            current_val = history[-1]["price"]
+            prev_val = history[-2]["price"]
+        
+        if current_val > prev_val: trend = "increasing"
+        elif current_val < prev_val: trend = "decreasing"
+        else: trend = "stable"
+        
+        # 3. Weather Integration
+        weather_condition = "Unknown"
+        weather_impact = "Stable production expected"
+        rules_applied = ["Market trend analysis"]
+        
+        if lat and lon:
+            weather = await WeatherService.fetch_weather_data(lat, lon)
+            if "error" not in weather:
+                weather_condition = weather["condition"]
+                rain = weather.get("rain_1h", 0)
+                temp = weather.get("temp", 0)
+                
+                if rain > 5:
+                    weather_impact = "Prices may drop due to supply issues (Heavy Rain)"
+                    rules_applied.append("Heavy rain alert")
+                elif temp > 35:
+                    weather_impact = "Crop stress may affect supply (High Heat)"
+                    rules_applied.append("Extreme heat alert")
+                else:
+                    weather_impact = "Good weather: Stable production expected"
+                    rules_applied.append("Favorable weather check")
+
+        # 4. Groq AI Reasoning
+        advice = "WAIT"
+        reason = "Market data stabilizing."
+        next_crop = "Consider pulses or seasonal vegetables."
+        ai_reasoning = ""
+        
+        if client:
+            prompt = f"""You are an agricultural financial advisor.
+Based on:
+* crop: {crop}
+* current price: {mandi['price']}
+* market trend: {trend}
+* weather: {weather_condition}
+
+Decide:
+1. Should farmer SELL NOW or WAIT
+2. Give short reason (1-2 lines)
+3. Suggest next crop (optional)"""
+
+            try:
+                completion = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.4
+                )
+                ai_reasoning = completion.choices[0].message.content.strip()
+                
+                # Basic parsing for structured fields (fallback if LLM doesn't follow perfectly)
+                if "SELL NOW" in ai_reasoning.upper(): advice = "SELL NOW"
+                else: advice = "WAIT"
+                
+                # Extract reason (simplistic parsing)
+                lines = ai_reasoning.split('\n')
+                reason = next((l for l in lines if any(x in l for x in ["Reason:", "2.", "because"])), "Analysis based on market trends.")
+                next_crop = next((l for l in lines if any(x in l for x in ["Next crop:", "3.", "Suggest"])), "Climate-resilient varieties.")
+            except Exception as e:
+                print(f"Groq Advisor Error: {e}")
+
+        # 5. Final Output Construction
+        return {
+            "crop": crop,
+            "current_price": mandi["price"],
+            "global_price": global_data.get("current", "N/A"),
+            "trend": trend,
+            "weather_impact": weather_impact,
+            "sell_advice": advice,
+            "reason": reason.replace("2. ", "").replace("Reason: ", ""),
+            "next_crop": next_crop.replace("3. ", "").replace("Next crop: ", ""),
+            "confidence": "high" if lat and lon else "medium",
+            "history": global_data.get("history", []),
+            "decision_log": {
+                "inputs": {
+                    "price": mandi["price"],
+                    "trend": trend,
+                    "weather": weather_condition
+                },
+                "rules_applied": rules_applied,
+                "ai_reasoning": ai_reasoning,
+                "final_decision": advice
+            }
+        }

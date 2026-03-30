@@ -12,21 +12,31 @@ load_dotenv()
 # Some ISPs block or fail to return A records for neon.tech pooler domains on Windows.
 if platform.system() == 'Windows':
     _orig_getaddrinfo = socket.getaddrinfo
+    _in_dns_patch = False
 
     def patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        if host and "neon.tech" in host:
+        global _in_dns_patch
+        # Handle cases where host might be bytes (AnyIO/Asyncio behavior)
+        host_str = host.decode() if isinstance(host, bytes) else host
+        
+        if not _in_dns_patch and host_str and "neon.tech" in host_str:
+            _in_dns_patch = True
             try:
-                url = f"https://dns.google/resolve?name={host}&type=A"
+                url = f"https://dns.google/resolve?name={host_str}&type=A"
                 r = httpx.get(url, timeout=5.0)
                 if r.status_code == 200:
                     data = r.json()
                     for answer in data.get("Answer", []):
                         if answer.get("type") == 1: # A record
                             ip = answer.get("data")
+                            _in_dns_patch = False
                             return [(socket.AF_INET, type if type else socket.SOCK_STREAM, 
                                      proto if proto else socket.IPPROTO_TCP, '', (ip, port))]
             except Exception:
                 pass
+            finally:
+                _in_dns_patch = False
+        
         return _orig_getaddrinfo(host, port, family, type, proto, flags)
 
     socket.getaddrinfo = patched_getaddrinfo

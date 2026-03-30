@@ -8,6 +8,7 @@ from groq import Groq
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import text
 from datetime import datetime
 from fastapi.staticfiles import StaticFiles
 import google.generativeai as genai
@@ -22,8 +23,10 @@ from routes.voice import router as voice_router
 from routes.market import router as market_router
 from services.weather_service import router as weather_router
 from services.money_advisor import router as money_router
-from services.scheme_service import router as scheme_router
+from services.schemes.scheme_service import router as scheme_router
 from services.marketplace_neon.marketplace_routes import router as marketplace_router
+from services.location_service import LocationService
+from services.weather_service import WeatherService
 
 app = FastAPI(title="Smart Farmer AI Platform API")
 
@@ -73,6 +76,40 @@ async def startup():
         async with engine.begin() as conn:
             # Sync metadata to the database
             await conn.run_sync(Base.metadata.create_all)
+            
+            # --- SCHEMA MIGRATION ---
+            # Manually ensure critical columns exist in case of legacy tables
+            def ensure_columns(connection):
+                # Check for consultations.farmer_name
+                try:
+                    connection.execute(text("ALTER TABLE consultations ADD COLUMN farmer_name VARCHAR(255) DEFAULT 'Farmer'"))
+                    print("MIGRATION: Added farmer_name to consultations.")
+                except Exception:
+                    pass 
+                
+                # Check for consultations.issue_description
+                try:
+                    connection.execute(text("ALTER TABLE consultations ADD COLUMN issue_description TEXT"))
+                    print("MIGRATION: Added issue_description to consultations.")
+                except Exception:
+                    pass
+                
+                # Check for consultations.status
+                try:
+                    connection.execute(text("ALTER TABLE consultations ADD COLUMN status VARCHAR(50) DEFAULT 'Pending'"))
+                    print("MIGRATION: Added status to consultations.")
+                except Exception:
+                    pass
+
+                # Check for consultations.cost
+                try:
+                    connection.execute(text("ALTER TABLE consultations ADD COLUMN cost FLOAT DEFAULT 0.0"))
+                    print("MIGRATION: Added cost to consultations.")
+                except Exception:
+                    pass
+            
+            await conn.run_sync(ensure_columns)
+            
         print("DATABASE PROTOCOL: Table Metadata Synced Successfully.")
         
         # Add initial mock data for advisory history if empty
@@ -92,18 +129,21 @@ async def startup():
 
 # --- AI PROMPTS ---
 
-TEXT_CHAT_PROMPT = """You are a senior agricultural advisor for rural farmers. Provide professional, practical guidance in Hindi/Hinglish.
+TEXT_CHAT_PROMPT = """You are a senior agricultural advisor for rural farmers.
 RULES:
-1. Provide clear, actionable advice for crop symptoms, pest issues, or soil health.
-2. If it's a major pest outbreak, suggest consulting a local Krishi Vigyan Kendra (KVK).
-3. For soil enrichment, suggest organic or specific fertilizer mixtures based on crop type.
-4. Keep it structured and easy to read on mobile."""
+1. Understand inputs in Hindi, Hinglish, or English.
+2. ALWAYS respond EXCLUSIVELY in Hindi (Devanagari script).
+3. Provide clear, actionable advice for crop symptoms, pest issues, or soil health.
+4. If it's a major pest outbreak, suggest consulting a local Krishi Vigyan Kendra (KVK).
+5. For soil enrichment, suggest organic or specific fertilizer mixtures based on crop type.
+6. Keep it structured and easy to read on mobile."""
 
-VOICE_CHAT_PROMPT = """You are a concise agricultural voice assistant. Use simple Hindi/Hinglish. 
+VOICE_CHAT_PROMPT = """You are a concise agricultural voice assistant.
 RULES: 
-1. Maximum 1 short sentence. 
-2. Be direct and clear for audio playback. 
-3. Focus on simple farming advice."""
+1. ALWAYS respond in simple Hindi (Devanagari script).
+2. Maximum 1 short sentence. 
+3. Be direct and clear for audio playback. 
+4. Focus on simple farming advice."""
 
 VISION_PROMPT = """You are an agricultural expert AI that analyzes crop and plant images.
 
@@ -114,6 +154,7 @@ Your job is to:
 - Suggest solutions for farmers
 
 Rules:
+- ALWAYS respond EXCLUSIVELY in Hindi (Devanagari script).
 - Give output ONLY in point-wise format
 - Keep points short and clear
 - Use simple farmer-friendly language
@@ -135,6 +176,8 @@ Do NOT include medical-related terms."""
 
 class ChatRequest(BaseModel):
     message: str
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
 class ProfileSchema(BaseModel):
     age: Optional[int] = None
@@ -160,9 +203,20 @@ class HistorySchema(BaseModel):
 @app.post("/chat")
 async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     if not client: raise HTTPException(status_code=500, detail="AI link not initialized.")
+    
+    # Enrich with location data
+    location_context = ""
+    if request.lat and request.lon:
+        loc = await LocationService.reverse_geocode(request.lat, request.lon)
+        weather = await WeatherService.fetch_weather_data(request.lat, request.lon)
+        location_context = f"\nUser Location: {loc['state']}, {loc['district']}\nCurrent Weather: {weather.get('condition', 'Unknown')}"
+
     completion = client.chat.completions.create(
         model="llama-3.3-70b-versatile", 
-        messages=[{"role": "system", "content": TEXT_CHAT_PROMPT}, {"role": "user", "content": request.message}], 
+        messages=[
+            {"role": "system", "content": TEXT_CHAT_PROMPT + location_context}, 
+            {"role": "user", "content": request.message}
+        ], 
         temperature=0.6
     )
     response_text = completion.choices[0].message.content
@@ -184,7 +238,7 @@ async def analyze_image(file: UploadFile = File(...), db: AsyncSession = Depends
             raise HTTPException(status_code=400, detail="Data packet too large (Max 5MB).")
 
         # Gemini Analysis
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content([
             f"{VISION_PROMPT}\n\nAnalyze this crop image.",
             {"mime_type": file.content_type, "data": contents}
@@ -203,22 +257,31 @@ async def analyze_image(file: UploadFile = File(...), db: AsyncSession = Depends
         return {"analysis": analysis_points}
     except Exception as e:
         print(f"Vision Analysis Core Error: {e}")
-        return {"analysis": ["System Status: Analysis engine stabilizing.", "Please attempt re-upload.", "Manual verification required."]}
+        raise HTTPException(
+            status_code=500, 
+            detail="Vision analysis failed. Ensure API keys are active and image data is valid."
+        )
 
 
 @app.post("/voice")
 async def voice_chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     """
-    Handles voice-to-text queries with rapid AI responses.
+    Handles voice-to-text queries with rapid AI responses and location context.
     """
     if not client: 
         raise HTTPException(status_code=500, detail="Core AI offline.")
     
+    # Enrich with location data
+    location_context = ""
+    if request.lat and request.lon:
+        loc = await LocationService.reverse_geocode(request.lat, request.lon)
+        location_context = f"\nUser Location: {loc['state']}"
+
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile", 
             messages=[
-                {"role": "system", "content": VOICE_CHAT_PROMPT}, 
+                {"role": "system", "content": VOICE_CHAT_PROMPT + location_context}, 
                 {"role": "user", "content": request.message}
             ], 
             max_tokens=150,

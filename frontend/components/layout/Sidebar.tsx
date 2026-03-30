@@ -17,6 +17,9 @@ import {
   CloudRain,
   Briefcase,
   ShoppingCart,
+  PiggyBank,
+  ShieldCheck,
+  Map as MapIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -38,8 +41,10 @@ export default function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
     { name: "Crop Image Analysis", icon: Camera, path: "/diagnosis" },
     { name: "Market Intelligence", icon: TrendingUp, path: "/market" },
     { name: "Weather Protocol", icon: CloudRain, path: "/weather" },
-    { name: "Farmer Intelligence Hub", icon: Briefcase, path: "/farmer-tools" },
+    { name: "Smart Money Advisor", icon: PiggyBank, path: "/farmer-tools" },
+    { name: "Government Schemes", icon: ShieldCheck, path: "/gov-schemes" },
     { name: "Farmer Marketplace", icon: ShoppingCart, path: "/marketplace" },
+    { name: "Live Mandi Locator", icon: MapIcon, path: "/live-location" },
   ];
 
   return (
@@ -119,31 +124,6 @@ export default function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
               );
             })}
           </nav>
-
-          {/* Support/Footer Section */}
-          <div className="p-6 border-t border-medical-border bg-medical-bg/30 space-y-4">
-            <div className="medical-card p-5 bg-white shadow-sm border-blue-50">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-medical-green/10 flex items-center justify-center">
-                  <Activity className="w-4 h-4 text-medical-green" />
-                </div>
-                <p className="text-sm font-semibold text-primary-900 uppercase tracking-widest leading-none">
-                  Farm Sensor Sync
-                </p>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-sm font-bold">
-                  <span className="text-medical-textSecondary uppercase tracking-tight">
-                    Status
-                  </span>
-                  <span className="text-medical-success font-semibold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-medical-green rounded-full animate-pulse"></span>
-                    RESTORED
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </aside>
     </>

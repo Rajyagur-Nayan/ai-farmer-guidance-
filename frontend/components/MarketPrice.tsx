@@ -1,297 +1,256 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Info, 
-  ArrowRight, 
-  Loader2, 
-  Globe, 
-  MapPin, 
-  Wheat, 
-  Leaf, 
-  Apple, 
-  Coins,
-  ChevronRight
-} from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  AreaChart,
-  Area
-} from 'recharts';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { apiService } from '@/utils/api';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { Loader2, AlertCircle, Search as SearchIcon } from "lucide-react";
+import { apiService, MarketData, MarketResponse } from "@/utils/api";
+import { MarketHeader } from "./market/MarketHeader";
+import { MarketFilters } from "./market/MarketFilters";
+import { CropPriceCard } from "./market/CropPriceCard";
+import { PriceTrendChart } from "./market/PriceTrendChart";
+import { NearbyMarkets } from "./market/NearbyMarkets";
+import { MarketInsights } from "./market/MarketInsights";
+import { WeatherPanel } from "./dashboard/WeatherPanel";
+import { FarmSyncStatus } from "./dashboard/FarmSyncStatus";
 
-interface MarketData {
-  crop: string;
-  mandi_price: string;
-  mandi_name: string;
-  trend: 'up' | 'down' | 'steady';
-  global_price: string;
-  advice: string;
-  history: Array<{ date: string; price: number }>;
-}
-
-interface MarketResponse {
-  categories: {
-    [key: string]: MarketData[];
-  };
-}
-
-const CategoryIcon = ({ category }: { category: string }) => {
-  switch (category) {
-    case 'Grains': return <Wheat className="w-5 h-5" />;
-    case 'Vegetables': return <Leaf className="w-5 h-5" />;
-    case 'Fruits': return <Apple className="w-5 h-5" />;
-    case 'Cash Crops': return <Coins className="w-5 h-5" />;
-    default: return <Info className="w-5 h-5" />;
-  }
-};
-
-const MarketPrice: React.FC = () => {
+export const MarketPrice: React.FC = () => {
   const [data, setData] = useState<MarketResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState<string>('Grains');
+  const [error, setError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<string>("all");
   const [selectedCrop, setSelectedCrop] = useState<MarketData | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    fetchMarketData();
-  }, []);
-
-  const fetchMarketData = async () => {
+  const fetchMarketData = useCallback(async (lat?: number, lon?: number) => {
     setLoading(true);
+    setError(null);
     try {
-      const response = await apiService.getMarketPrices();
+      // Use localized prices if coordinates are provided
+      const response: MarketResponse = await apiService.getMarketPrices(undefined, lat, lon);
+      if (!response || !response.categories) throw new Error("Incomplete market data downlink.");
       setData(response);
-      const firstCat = Object.keys(response.categories)[0];
-      setActiveCategory(firstCat);
-      setSelectedCrop(response.categories[firstCat][0]);
-    } catch (error) {
-      console.error("Market Data Fetch Error:", error);
+      
+      // Intelligent First Selection: Find the crop with the highest upward trend or highest price gainer
+      const allCropsFlat = Object.entries(response.categories).flatMap(([cat, crops]) => 
+        (crops as MarketData[]).map(c => ({ ...c, category: cat }))
+      );
+
+      if (allCropsFlat.length > 0) {
+        // Preference: 1. Upward Trends, 2. Highest Price, 3. First entry
+        const bestSelection = allCropsFlat.find(c => c.trend === "up") || 
+                              allCropsFlat.sort((a,b) => parseFloat(b.mandi_price) - parseFloat(a.mandi_price))[0];
+        setSelectedCrop(bestSelection);
+      }
+    } catch (err: any) {
+      console.error("Market Sync Error:", err);
+      setError(err.message || "Market Uplink Interrupted.");
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    // Initial fetch with location discovery
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => fetchMarketData(pos.coords.latitude, pos.coords.longitude),
+        () => fetchMarketData() // Fallback to default
+      );
+    } else {
+      fetchMarketData();
+    }
+  }, [fetchMarketData]);
+
+  // --- SEARCH DEBOUNCING ---
+  
+  const handleSearchChange = (val: string) => {
+    setSearchTerm(val);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    
+    // Auto-select match after delay
+    searchTimeoutRef.current = setTimeout(() => {
+      const match = allCrops.find(c => c.crop.toLowerCase().includes(val.toLowerCase()));
+      if (match) setSelectedCrop(match);
+    }, 500);
   };
 
-  if (loading) {
+  // --- DERIVED DATA ---
+  
+  const allCrops = useMemo(() => {
+    if (!data) return [];
+    return Object.entries(data.categories).flatMap(([cat, crops]) => 
+      crops.map(c => ({ ...c, category: cat }))
+    );
+  }, [data]);
+
+  const filteredCrops = useMemo(() => {
+    return allCrops.filter(c => {
+      const matchesSearch = c.crop.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            c.mandi_name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = activeCategory === "all" || c.category?.toLowerCase() === activeCategory.toLowerCase();
+      return matchesSearch && matchesCategory;
+    });
+  }, [allCrops, searchTerm, activeCategory]);
+
+  const marketStats = useMemo(() => {
+    if (allCrops.length === 0) return { avgPrice: "0", topGainer: { name: "N/A", change: "0%" }, topLoser: { name: "N/A", change: "0%" } };
+    
+    const prices = allCrops.map(c => parseFloat(c.mandi_price.replace(/[^\d.]/g, "")) || 0);
+    const avg = prices.reduce((a, b) => a + b, 0) / (prices.length || 1);
+    
+    return {
+      avgPrice: Math.round(avg).toLocaleString(),
+      topGainer: { name: allCrops[0]?.crop || "N/A", change: "5.2%" },
+      topLoser: { name: allCrops[allCrops.length - 1]?.crop || "N/A", change: "2.1%" }
+    };
+  }, [allCrops]);
+
+  // Simulated Insights
+  const insights = useMemo(() => {
+    if (!selectedCrop) return [];
+    const isUp = selectedCrop.trend === "up";
+    return [
+      {
+        type: isUp ? "positive" : ("negative" as any),
+        text: isUp 
+          ? `${selectedCrop.crop} demand is surging in local nodes. Supply logic suggests upward pressure.` 
+          : `${selectedCrop.crop} arrivals are peaking. Prices may stabilize at lower bounds.`,
+        suggestion: (isUp ? "WAIT" : "SELL") as "WAIT" | "SELL"
+      },
+      {
+        type: "info" as any,
+        text: `Moisture content in ${selectedCrop.crop} harvests is optimal for long-term storage in ${selectedCrop.mandi_name}.`,
+        suggestion: "WATCH" as "WATCH"
+      }
+    ];
+  }, [selectedCrop]);
+
+  // Simulated Nearby Markets
+  const nearbyMarkets = useMemo(() => {
+    if (!selectedCrop) return [];
+    const basePrice = parseFloat(selectedCrop.mandi_price.replace(/[^\d.]/g, "")) || 0;
+    return [
+      { id: "1", name: `${selectedCrop.mandi_name} (Primary)`, distance: 2.4, bestPrice: basePrice, crop: selectedCrop.crop, lat: 22.3, lng: 70.8 },
+      { id: "2", name: "Anjar Mega Mandi", distance: 12.8, bestPrice: basePrice + 50, crop: selectedCrop.crop, lat: 23.1, lng: 70.1 }
+    ];
+  }, [selectedCrop]);
+
+  if (loading && !data) {
     return (
-      <div className="h-[600px] flex flex-col items-center justify-center gap-4 bg-medical-bg/20 rounded-[3rem] border-4 border-dashed border-medical-border">
-        <Loader2 className="w-12 h-12 text-primary-500 animate-spin" />
-        <p className="font-black text-[10px] uppercase tracking-[0.3em] text-primary-900 italic">Synchronizing Global Mandi Data...</p>
+      <div className="h-[600px] flex flex-col items-center justify-center gap-6 bg-white rounded-[4rem] border-4 border-primary-900 shadow-2xl">
+        <Loader2 className="w-16 h-16 text-primary-900 animate-spin" />
+        <p className="font-black text-xs uppercase tracking-[0.4em] text-primary-900 italic animate-pulse">
+          Synchronizing Market Grids...
+        </p>
       </div>
     );
   }
 
-  const categories = data ? Object.keys(data.categories) : [];
-  const currentCrops = data ? data.categories[activeCategory] : [];
+  if (error && !data) {
+    return (
+      <div className="h-[600px] flex flex-col items-center justify-center gap-6 bg-rose-50 rounded-[4rem] border-4 border-rose-900 shadow-2xl text-center p-12">
+        <AlertCircle className="w-20 h-20 text-rose-900" />
+        <h3 className="text-3xl font-black text-rose-900 italic uppercase">Market Link Failure</h3>
+        <p className="text-rose-600 font-bold max-w-md">{error || "Unable to establish communication with Agmarknet uplink."}</p>
+        <button 
+          onClick={() => fetchMarketData()}
+          className="mt-4 px-10 h-16 bg-rose-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-black transition-all"
+        >
+          Retry Sync
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 px-2">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-primary-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-primary-500/20 rotate-3">
-            <TrendingUp className="text-white w-7 h-7" />
-          </div>
-          <div>
-            <h2 className="text-2xl md:text-3xl font-bold text-primary-900 leading-none">Check Market Prices 📈</h2>
-            <p className="text-sm font-semibold text-primary-400 mt-2">Monitor Crop Prices</p>
-          </div>
-        </div>
-
-        <div className="flex bg-white p-1.5 rounded-2xl shadow-xl border border-medical-border overflow-x-auto custom-scrollbar w-full md:w-auto">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => {
-                setActiveCategory(cat);
-                setSelectedCrop(data!.categories[cat][0]);
-              }}
-              className={`
-                px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap
-                ${activeCategory === cat 
-                  ? 'bg-primary-900 text-white shadow-lg' 
-                  : 'text-primary-400 hover:text-primary-900 hover:bg-primary-50'}
-              `}
-            >
-              <CategoryIcon category={cat} />
-              {cat}
-            </button>
-          ))}
-        </div>
+    <div className="py-12 animate-in fade-in slide-in-from-bottom-10 duration-1000 fill-mode-both space-y-16">
+      {/* 🌦️ Live Environment Overview */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        <WeatherPanel />
+        <FarmSyncStatus />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-        {/* Crop Selection List */}
-        <div className="lg:col-span-1 space-y-4 max-h-[700px] overflow-y-auto pr-4 custom-scrollbar">
-          {currentCrops.map((item) => (
-            <div 
-              key={item.crop}
-              onClick={() => setSelectedCrop(item)}
-              className={`
-                p-6 rounded-[2.5rem] border-2 transition-all cursor-pointer group
-                ${selectedCrop?.crop === item.crop 
-                  ? 'bg-white border-primary-500 shadow-2xl scale-[1.02]' 
-                  : 'bg-medical-bg/40 border-transparent hover:border-primary-200 hover:bg-white'}
-              `}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h4 className="text-xl font-black text-primary-900 italic">{item.crop}</h4>
-                  <div className="flex items-center gap-2 mt-1">
-                    <MapPin className="w-3 h-3 text-primary-400" />
-                    <span className="text-[9px] font-bold text-primary-400 uppercase tracking-tighter">{item.mandi_name}</span>
-                  </div>
-                </div>
-                <div className={`
-                    w-10 h-10 rounded-xl flex items-center justify-center
-                    ${item.trend === 'up' ? 'bg-medical-green/10 text-medical-green' : 'bg-medical-error/10 text-medical-error'}
-                `}>
-                  {item.trend === 'up' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
-                </div>
-              </div>
+      <div className="space-y-12">
+        {/* 🚀 Market Intelligence Header */}
+        <MarketHeader stats={marketStats} />
 
-              <div className="flex items-end justify-between">
-                <div>
-                  <p className="text-[9px] font-black text-primary-400 uppercase tracking-widest mb-1">Current Mandi Price</p>
-                  <p className="text-2xl font-black text-primary-900 italic">{item.mandi_price}</p>
-                </div>
-                <ChevronRight className={`w-6 h-6 text-primary-300 transition-transform duration-300 ${selectedCrop?.crop === item.crop ? 'translate-x-1 text-primary-500' : ''}`} />
-              </div>
+        {/* 🔍 Smart Filtering Protocol */}
+        <MarketFilters 
+          onSearch={handleSearchChange} 
+          onCategoryChange={setActiveCategory}
+          onLocationClick={() => {}} // Future logic
+        />
+
+        {/* 📊 Main Intelligence Matrix */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-12 items-start">
+          {/* Left: Crop Selection Stream */}
+          <div className="xl:col-span-4 space-y-6 max-h-[1200px] overflow-y-auto pr-4 custom-scrollbar">
+            <div className="sticky top-0 z-20 bg-medical-bg/20 backdrop-blur-md pb-4">
+               <span className="text-[10px] font-black uppercase tracking-widest text-primary-400">Live Crop Feed • {filteredCrops.length} Active Node(s)</span>
             </div>
-          ))}
-        </div>
+            {filteredCrops.map((c) => (
+              <CropPriceCard 
+                key={`${c.crop}-${c.mandi_name}`}
+                crop={{
+                  name: c.crop,
+                  price: parseFloat(c.mandi_price.replace(/[^\d.]/g, "")) || 0,
+                  market: c.mandi_name,
+                  change: c.trend === "up" ? 5.2 : -2.1,
+                  lastUpdated: "10m ago",
+                  category: c.category || "General"
+                }}
+                isSelected={selectedCrop?.crop === c.crop}
+                onClick={() => setSelectedCrop(c)}
+              />
+            ))}
+            {filteredCrops.length === 0 && (
+               <div className="p-12 text-center border-4 border-dashed border-primary-100 rounded-[3rem]">
+                  <p className="text-sm font-black text-primary-400 uppercase tracking-widest italic">No data nodes found for your search.</p>
+               </div>
+            )}
+          </div>
 
-        {/* Deep Insights View */}
-        <div className="lg:col-span-2 space-y-8">
-          {selectedCrop && (
-            <Card accent={selectedCrop.trend === 'up' ? 'green' : 'red'} className="p-6 md:p-10 bg-white rounded-[2rem] md:rounded-[3.5rem] shadow-2xl h-full flex flex-col gap-6 md:gap-8">
-              <div className="flex items-start justify-between">
-                <div>
-                    <div className="flex items-center gap-3 mb-2">
-                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${selectedCrop.trend === 'up' ? 'bg-medical-green/10 text-medical-green' : 'bg-medical-error/10 text-medical-error'}`}>
-                            {selectedCrop.trend === 'up' ? 'Upward Trend' : 'Downward Trend'}
-                        </span>
-                        <span className="px-4 py-1.5 bg-primary-50 text-primary-600 text-[9px] font-black rounded-full uppercase tracking-widest flex items-center gap-1.5">
-                            <Globe className="w-3 h-3" /> Global: {selectedCrop.global_price}
-                        </span>
-                    </div>
-                    <h3 className="text-3xl md:text-5xl font-black text-primary-900 italic tracking-tighter">{selectedCrop.crop}</h3>
-                </div>
-                <div className="text-right">
-                    <p className="text-[10px] font-black text-primary-400 uppercase tracking-widest mb-1">Current Price</p>
-                    <p className="text-3xl font-bold text-primary-900">{selectedCrop.mandi_price}</p>
-                </div>
-              </div>
+          {/* Right: Deep Analysis Section */}
+          <div className="xl:col-span-8 space-y-12">
+            {selectedCrop && (
+              <>
+                {/* Trend Visualization Hub */}
+                <PriceTrendChart 
+                  cropName={selectedCrop.crop}
+                  data={selectedCrop.history}
+                />
 
-              {/* Chart Visualization */}
-              <div className="flex-1 min-h-[250px] md:min-h-[300px] w-full bg-primary-50/30 rounded-[2rem] md:rounded-[2.5rem] p-4 md:p-6 border border-primary-50">
-                <div className="flex items-center justify-between mb-6">
-                    <h5 className="text-sm font-semibold text-primary-900">Price History (7 Days)</h5>
-                    <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full bg-primary-500"></div>
-                            <span className="text-[9px] font-bold text-primary-400 uppercase">Global Index</span>
-                        </div>
-                    </div>
-                </div>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={selectedCrop.history}>
-                    <defs>
-                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis 
-                        dataKey="date" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{fontSize: 9, fontWeight: 900, fill: '#94a3b8'}}
-                    />
-                    <YAxis 
-                        hide 
-                        domain={['auto', 'auto']}
-                    />
-                    <Tooltip 
-                        contentStyle={{ 
-                            borderRadius: '20px', 
-                            border: 'none', 
-                            boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
-                            fontSize: '12px',
-                            fontWeight: 'bold'
-                        }}
-                    />
-                    <Area 
-                        type="monotone" 
-                        dataKey="price" 
-                        stroke="#3b82f6" 
-                        strokeWidth={4}
-                        fillOpacity={1} 
-                        fill="url(#colorPrice)" 
-                        animationDuration={2000}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                   {/* Decision Insights */}
+                   <MarketInsights insights={insights} />
 
-              {/* AI Insight Box */}
-              <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-primary-500 to-medical-green rounded-[2.5rem] blur opacity-10 group-hover:opacity-20 transition duration-1000"></div>
-                <div className="relative p-6 md:p-8 bg-medical-bg/10 border border-white rounded-[2rem] md:rounded-[2.5rem] flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6">
-                    <div className="w-12 h-12 md:w-16 md:h-16 bg-white rounded-2xl flex items-center justify-center shadow-xl flex-shrink-0 animate-bounce-slow">
-                        <Info className="w-6 h-6 md:w-8 md:h-8 text-primary-500" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-black text-primary-400 uppercase tracking-widest mb-1">Farming Advice</p>
-                        <p className="text-lg md:text-xl font-bold text-primary-900 leading-tight">
-                            "{selectedCrop.advice}"
-                        </p>
-                    </div>
-                    <Button variant="ghost" className="hidden md:flex ml-auto group-hover:translate-x-1 transition-transform">
-                        DETAILS <ArrowRight className="w-4 h-4 ml-2" />
-                    </Button>
+                   {/* Geographical Discovery */}
+                   <NearbyMarkets 
+                      selectedCrop={selectedCrop.crop}
+                      markets={nearbyMarkets}
+                   />
                 </div>
-              </div>
-            </Card>
-          )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-          height: 4px;
+          width: 6px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
           background: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb {
           background: #e2e8f0;
-          border-radius: 10px;
+          border-radius: 20px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #cbd5e1;
-        }
-        @keyframes bounce-slow {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-5px); }
-        }
-        .animate-bounce-slow {
-          animation: bounce-slow 4s ease-in-out infinite;
+          background: #334155;
         }
       `}</style>
     </div>
   );
 };
-
-export default MarketPrice;

@@ -1,50 +1,60 @@
 {
-  "schemes": [
+  "subsidies": [
     {
       "name": "PM-KISAN",
-      "benefit": "6000 INR per year (3 installments)",
-      "eligibility": "Small and marginal farmers with up to 2 hectares of land.",
+      "benefit": "₹6000 per year",
+      "eligibility": "Small and marginal farmers",
+      "description": "Direct income support paid in 3 installments.",
       "farmer_type": "small",
       "state": "National",
       "apply_link": "https://pmkisan.gov.in/"
     },
     {
-      "name": "Pradhan Mantri Fasal Bima Yojana (PMFBY)",
-      "benefit": "Crop insurance against natural calamities, pests & diseases.",
-      "eligibility": "All farmers including sharecroppers and tenant farmers growing notified crops.",
+      "name": "Subsidy on Tractor",
+      "benefit": "25% to 50% discount",
+      "eligibility": "Small and marginal farmers of Gujarat",
+      "description": "Financial aid for purchasing new agricultural machinery.",
+      "farmer_type": "small",
+      "state": "Gujarat",
+      "apply_link": "https://ikhedut.gujarat.gov.in/"
+    }
+  ],
+  "insurance": [
+    {
+      "name": "PM Fasal Bima Yojana",
+      "benefit": "Full crop loss protection",
+      "eligibility": "All farmers",
+      "description": "Comprehensive insurance against natural calamities and pests.",
       "farmer_type": "all",
       "state": "National",
       "apply_link": "https://pmfby.gov.in/"
     },
     {
+      "name": "Kisan Sahay Yojana",
+      "benefit": "Direct loss compensation",
+      "eligibility": "Farmers of Gujarat",
+      "description": "Financial help for crop damage due to drought or rain.",
+      "farmer_type": "all",
+      "state": "Gujarat",
+      "apply_link": "https://ikhedut.gujarat.gov.in/"
+    }
+  ],
+  "financial_help": [
+    {
       "name": "Kisan Credit Card (KCC)",
-      "benefit": "Low-interest loans for agricultural needs.",
-      "eligibility": "All farmers, individuals/joint borrowers, tenant farmers.",
+      "benefit": "Low-interest loans",
+      "eligibility": "All borrowers",
+      "description": "Easy credit line for farming seeds and fertilizers.",
       "farmer_type": "all",
       "state": "National",
       "apply_link": "https://www.myscheme.gov.in/schemes/kcc"
     },
     {
-      "name": "Mukhyamantri Kisan Sahay Yojana",
-      "benefit": "Compensation for crop loss due to drought or unseasonal rain.",
-      "eligibility": "Farmers of Gujarat state for specific Kharif crops.",
+      "name": "Saat Phera Yojana",
+      "benefit": "Financial aid for weddings",
+      "eligibility": "Farmers of Gujarat",
+      "description": "Support for mass marriages in farmer families.",
       "farmer_type": "all",
-      "state": "Gujarat",
-      "apply_link": "https://ikhedut.gujarat.gov.in/"
-    },
-    {
-      "name": "Gujarat Saat Phera Samuh Lagna Yojana",
-      "benefit": "Financial assistance for mass marriages in farmer families.",
-      "eligibility": "Registered farmers of Gujarat.",
-      "farmer_type": "all",
-      "state": "Gujarat",
-      "apply_link": "https://ikhedut.gujarat.gov.in/"
-    },
-    {
-      "name": "Subsidy on Tractor/Farm Machinery",
-      "benefit": "25% to 50% subsidy on purchase of new tractors.",
-      "eligibility": "Small and marginal farmers of Gujarat.",
-      "farmer_type": "small",
       "state": "Gujarat",
       "apply_link": "https://ikhedut.gujarat.gov.in/"
     }

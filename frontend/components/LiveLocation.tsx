@@ -8,15 +8,16 @@ import {
   Phone, 
   Activity, 
   Star, 
-  Pill, 
-  Brain, 
-  Stethoscope, 
+  Truck, 
+  Sprout, 
+  Warehouse, 
   AlertTriangle,
   Loader2,
   ChevronRight,
   TrendingUp,
   Map as MapIcon,
-  Search
+  Search,
+  PawPrint
 } from "lucide-react";
 
 // Geolocation & Utils
@@ -25,25 +26,23 @@ import { calculateDistance, formatDistance, Coordinates } from "@/utils/location
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 
-// Leaflet Compatibility (CSS must be imported here or in globals.css)
+// Leaflet Compatibility
 import "leaflet/dist/leaflet.css";
 import "leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css";
 import "leaflet-defaulticon-compatibility";
 
-// SSR-Safe Map Components
-const MapContainer = dynamic(() => import("react-leaflet").then(m => m.MapContainer), { ssr: false });
-const TileLayer = dynamic(() => import("react-leaflet").then(m => m.TileLayer), { ssr: false });
-const Marker = dynamic(() => import("react-leaflet").then(m => m.Marker), { ssr: false });
-const Popup = dynamic(() => import("react-leaflet").then(m => m.Popup), { ssr: false });
-const Polyline = dynamic(() => import("react-leaflet").then(m => m.Polyline), { ssr: false });
-const MapUpdater = dynamic(() => Promise.resolve(({ center }: { center: [number, number] }) => {
-  const { useMap } = require("react-leaflet");
-  const map = useMap();
-  useEffect(() => { if (center) map.setView(center, 14); }, [center, map]);
-  return null;
-}), { ssr: false });
+// SSR-Safe Map Component (Isolates Leaflet/Window dependencies)
+const MandiMap = dynamic(() => import("./market/MandiMap"), { 
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full flex flex-col items-center justify-center space-y-4">
+      <Loader2 className="w-12 h-12 text-primary-500 animate-spin" />
+      <p className="text-[10px] font-black text-primary-400 uppercase tracking-[0.3em] animate-pulse">Acquiring Orbital Lock...</p>
+    </div>
+  )
+});
 
-interface MedicalFacility {
+interface FarmerFacility {
   id: string;
   name: string;
   lat: number;
@@ -55,33 +54,34 @@ interface MedicalFacility {
 }
 
 const CATEGORIES = [
-  { id: "hospital", label: "Hospital", icon: Stethoscope, query: '["amenity"="hospital"]' },
-  { id: "dental", label: "Dental", icon: Star, query: '["healthcare"="dentist"]' },
-  { id: "mental", label: "Mental Health", icon: Brain, query: '["healthcare:speciality"~"psychiatry|psychotherapy"]' },
-  { id: "pharmacy", label: "Pharmacy", icon: Pill, query: '["amenity"="pharmacy"]' },
+  { id: "mandi", label: "Local Mandi", icon: Warehouse, query: '["amenity"="market"]' },
+  { id: "agri_shop", label: "Agri Shops", icon: Sprout, query: '["shop"="agricultural"]' },
+  { id: "logistics", label: "Logistics", icon: Truck, query: '["industrial"="logistics"]' },
+  { id: "veterinary", label: "Veterinary", icon: PawPrint, query: '["amenity"="veterinary"]' },
 ];
 
 export default function LiveLocation() {
   const { coords: userCoords, loading: geoLoading, error: geoError } = useLiveLocation();
   const [activeCategory, setActiveCategory] = useState(CATEGORIES[0]);
-  const [facilities, setFacilities] = useState<MedicalFacility[]>([]);
+  const [facilities, setFacilities] = useState<FarmerFacility[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedFacility, setSelectedFacility] = useState<MedicalFacility | null>(null);
+  const [selectedFacility, setSelectedFacility] = useState<FarmerFacility | null>(null);
   const [routeData, setRouteData] = useState<[number, number][]>([]);
-  const [emergencyMode, setEmergencyMode] = useState(false);
+  const [searchRadius, setSearchRadius] = useState(5000); // 5km for rural areas
+  const [error, setError] = useState<string | null>(null);
 
-  const [lastFetchCoords, setLastFetchCoords] = useState<Coordinates | null>(null);
   const abortControllerRef = React.useRef<AbortController | null>(null);
+  const cacheRef = React.useRef<Map<string, FarmerFacility[]>>(new Map());
+  const lastFetchRef = React.useRef<{ lat: number; lng: number; cat: string } | null>(null);
 
-  // 📡 Overpass API Engine
-  const fetchNearby = useCallback(async (lat: number, lng: number, radius: number = 2500) => {
-    // 🛑 Cancel in-flight requests
+  // 📡 Overpass API Engine (Optimized for Rural Discovery)
+  const fetchNearby = useCallback(async (lat: number, lng: number, radius: number = 5000, retryCount = 0) => {
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
 
     setLoading(true);
     const query = `
-      [out:json][timeout:25];
+      [out:json][timeout:30];
       (
         node${activeCategory.query}(around:${radius},${lat},${lng});
         way${activeCategory.query}(around:${radius},${lat},${lng});
@@ -90,6 +90,14 @@ export default function LiveLocation() {
       out center;
     `;
     
+    // 🧠 Cache Check (Round to 3 decimals ~110m precision)
+    const cacheKey = `${activeCategory.id}-${lat.toFixed(3)}-${lng.toFixed(3)}`;
+    if (cacheRef.current.has(cacheKey) && retryCount === 0) {
+      setFacilities(cacheRef.current.get(cacheKey)!);
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch("https://overpass-api.de/api/interpreter", {
         method: "POST",
@@ -97,171 +105,124 @@ export default function LiveLocation() {
         signal: abortControllerRef.current.signal,
       });
 
-      if (!response.ok) {
-        if (response.status === 429) throw new Error("Rate limit exceeded. Try again in 60s.");
-        if (response.status === 504) throw new Error("Gateway timeout. Reducing search area...");
-        throw new Error(`Cloud Uplink Error (${response.status})`);
+      if (response.status === 429) {
+        throw new Error("RATE_LIMIT");
       }
+
+      if (response.status === 504 || response.status === 502) {
+          if (retryCount < 2) {
+              setError(`Retrying Cloud Node... (${retryCount + 1})`);
+              const delay = (retryCount + 1) * 3000;
+              setTimeout(() => fetchNearby(lat, lng, radius, retryCount + 1), delay);
+              return;
+          }
+          throw new Error("GATEWAY_TIMEOUT");
+      }
+
+      if (!response.ok) throw new Error("Cloud Node Link Failure");
 
       const data = await response.json();
       const nodes = data.elements.map((el: any) => ({
         id: el.id,
-        name: el.tags?.name || "Unnamed Facility",
+        name: el.tags?.name || `${activeCategory.label} Center`,
         lat: el.lat || el.center?.lat,
         lng: el.lon || el.center?.lon,
         type: activeCategory.id,
         distance: calculateDistance({ lat, lng }, { lat: el.lat || el.center?.lat, lng: el.lon || el.center?.lon }),
-        address: el.tags?.["addr:street"] || "Location Detected",
-        phone: el.tags?.phone || "Not Listed",
+        address: el.tags?.["addr:street"] || el.tags?.["addr:full"] || "Rural Sector Identified",
+        phone: el.tags?.phone || el.tags?.["contact:phone"] || "N/A",
       }));
       
       const sorted = nodes.sort((a: any, b: any) => a.distance - b.distance);
       setFacilities(sorted);
-      setLastFetchCoords({ lat, lng });
-      
-      if (emergencyMode && sorted.length > 0) {
-        setSelectedFacility(sorted[0]);
-      }
+      cacheRef.current.set(cacheKey, sorted);
+      setError(null);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
-      console.error("Clinical Node Search Fault:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeCategory, emergencyMode]);
-
-  // 🧭 OSRM Routing System
-  const fetchRoute = async (dest: Coordinates) => {
-    if (!userCoords) return;
-    try {
-      const resp = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${userCoords.lng},${userCoords.lat};${dest.lng},${dest.lat}?overview=full&geometries=geojson`
-      );
-      const data = await resp.json();
-      if (data.routes && data.routes.length > 0) {
-        const points = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
-        setRouteData(points as [number, number][]);
+      
+      if (err.message === "RATE_LIMIT") {
+        setError("Network busy. Retrying in 30s...");
+        setTimeout(() => fetchNearby(lat, lng, radius), 30000);
+      } else if (err.message === "GATEWAY_TIMEOUT") {
+        setError("Overpass Node Timeout. Click manual refresh.");
+      } else {
+        console.error("Discovery Fault:", err);
+        setError("Sensor Grid Offline");
       }
-    } catch (err) {
-      console.error("Routing Uplink Failure:", err);
+    } finally {
+      if (retryCount === 0 || !error?.includes("Retrying")) {
+          setLoading(false);
+      }
     }
-  };
-
-  const lastCategoryRef = React.useRef(activeCategory.id);
+  }, [activeCategory]);
 
   useEffect(() => {
     if (userCoords) {
-      const distanceMoved = lastFetchCoords 
-        ? calculateDistance(lastFetchCoords, userCoords) 
-        : Infinity;
-      
-      const categoryChanged = lastCategoryRef.current !== activeCategory.id;
+      // 🚀 Movement Threshold: Only fetch if moved > 200m or category changed
+      const hasMovedSignificantly = !lastFetchRef.current || 
+        calculateDistance(lastFetchRef.current, userCoords) > 0.2 ||
+        lastFetchRef.current.cat !== activeCategory.id;
 
-      if (categoryChanged || distanceMoved > 0.5 || !lastFetchCoords) {
-        fetchNearby(userCoords.lat, userCoords.lng);
-        lastCategoryRef.current = activeCategory.id;
+      if (hasMovedSignificantly) {
+        fetchNearby(userCoords.lat, userCoords.lng, searchRadius);
+        lastFetchRef.current = { lat: userCoords.lat, lng: userCoords.lng, cat: activeCategory.id };
       }
     }
-  }, [userCoords, activeCategory, fetchNearby, lastFetchCoords]);
-
-  useEffect(() => {
-    if (selectedFacility) {
-      fetchRoute({ lat: selectedFacility.lat, lng: selectedFacility.lng });
-    } else {
-      setRouteData([]);
-    }
-  }, [selectedFacility]);
+  }, [userCoords, activeCategory, fetchNearby, searchRadius]);
 
   if (geoError) {
     return (
-      <Card className="m-6 p-12 text-center bg-red-50/50 border-red-100 rounded-3xl">
-        <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-6" />
-        <h3 className="text-2xl font-black text-red-900 mb-2">GPS SIGNAL LOST</h3>
-        <p className="text-red-600 font-bold uppercase tracking-widest text-xs">{geoError}</p>
-        <Button onClick={() => window.location.reload()} className="mt-8 rounded-full px-12 py-6 bg-red-600 hover:bg-red-700 shadow-xl shadow-red-600/20">
-          REBOOT SENSORS
+      <div className="flex flex-col items-center justify-center h-full p-12 text-center bg-rose-50/30 rounded-[3rem] border-2 border-dashed border-rose-100">
+        <AlertTriangle className="w-16 h-16 text-rose-500 mb-6" />
+        <h3 className="text-2xl font-black text-rose-900 mb-2 italic">GEOLOCATION FAILURE</h3>
+        <p className="text-rose-600 font-bold uppercase tracking-widest text-[10px]">{geoError}</p>
+        <Button onClick={() => window.location.reload()} className="mt-8 rounded-3xl px-12 py-6 bg-rose-600 text-white font-black italic shadow-2xl">
+          RECALIBRATE GPS
         </Button>
-      </Card>
+      </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white overflow-hidden border-0 pt-16 pb-16 lg:pt-0 lg:pb-0">
-      {/* 🛑 EMERGENCY HEADER */}
-      {emergencyMode && (
-        <div className="bg-red-600 text-white px-6 py-4 flex items-center justify-between animate-pulse shrink-0">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-6 h-6 fill-white text-red-600" />
-            <span className="font-black uppercase tracking-[0.2em] text-sm">EMERGENCY PROTOCOL ACTIVE</span>
-          </div>
-          <button onClick={() => setEmergencyMode(false)} className="px-4 py-1.5 bg-white/20 hover:bg-white/40 rounded-full text-xs font-black uppercase transition-all">
-            DISMISS
-          </button>
-        </div>
-      )}
-
+    <div className="flex flex-col h-full bg-white overflow-hidden rounded-[3.5rem] border-4 border-primary-900 shadow-2xl relative">
       {/* 📍 MAP SECTION */}
-      <div className="relative h-1/2 md:h-[55%] shrink-0 overflow-hidden bg-primary-100/30">
+      <div className="relative h-1/2 md:h-[60%] shrink-0 overflow-hidden bg-primary-100/30">
         {!geoLoading && userCoords ? (
-          <MapContainer 
-            center={[userCoords.lat, userCoords.lng]} 
-            zoom={14} 
-            className="h-full w-full z-10"
-            scrollWheelZoom={true}
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            
-            {/* User Marker */}
-            <Marker position={[userCoords.lat, userCoords.lng]} />
-            
-            {/* Facility Markers */}
-            {facilities.map((f) => (
-              <Marker 
-                key={f.id} 
-                position={[f.lat, f.lng]}
-                eventHandlers={{ click: () => setSelectedFacility(f) }}
-              />
-            ))}
-
-            {/* Route Line */}
-            {routeData.length > 0 && (
-              <Polyline positions={routeData} color={emergencyMode ? "#ef4444" : "#22c55e"} weight={6} opacity={0.8} />
-            )}
-
-            <MapUpdater center={[userCoords.lat, userCoords.lng]} />
-          </MapContainer>
+          <MandiMap 
+            userCoords={userCoords}
+            facilities={facilities}
+            onFacilityClick={(f) => setSelectedFacility(f)}
+            routeData={routeData}
+          />
         ) : (
           <div className="h-full w-full flex flex-col items-center justify-center space-y-4">
             <Loader2 className="w-12 h-12 text-primary-500 animate-spin" />
-            <p className="text-xs font-black text-primary-400 uppercase tracking-widest">Acquiring Orbital Lock...</p>
+            <p className="text-[10px] font-black text-primary-400 uppercase tracking-[0.3em] animate-pulse">Acquiring Orbital Lock...</p>
           </div>
         )}
 
         {/* 🗺️ OVERLAY CONTROLS */}
         <div className="absolute top-6 left-6 z-20 flex flex-col gap-3">
           <Button 
-            variant={emergencyMode ? "danger" : "secondary"}
-            onClick={() => {
-              setEmergencyMode(true);
-              setActiveCategory(CATEGORIES[0]);
-              if (facilities.length > 0) setSelectedFacility(facilities[0]);
-            }}
-            className="rounded-2xl shadow-2xl h-14 w-14 p-0 shadow-red-500/20"
-          >
-            <AlertTriangle className="w-6 h-6" />
-          </Button>
-          <Button 
             onClick={() => userCoords && fetchNearby(userCoords.lat, userCoords.lng)} 
-            className="rounded-2xl bg-white text-primary-900 hover:bg-primary-50 shadow-2xl h-14 w-14 p-0 border border-primary-100"
+            className="rounded-2xl bg-primary-900 text-white shadow-2xl h-14 w-14 p-0 hover:rotate-12 transition-transform"
           >
             <Search className="w-6 h-6" />
           </Button>
         </div>
+
+        {/* ⚠️ Error Overlay */}
+        {error && (
+          <div className="absolute top-6 right-6 z-20 bg-rose-600 text-white px-6 py-3 rounded-2xl shadow-2xl animate-bounce text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
       </div>
 
       {/* 🎛️ CATEGORY RIBBON */}
-      <div className="bg-white border-b border-primary-50 p-4 shrink-0 shadow-sm z-20">
-        <div className="flex gap-3 overflow-x-auto no-scrollbar px-2">
+      <div className="bg-white border-b border-primary-50 p-6 shrink-0 shadow-sm z-20 scrollbar-hide overflow-x-auto">
+        <div className="flex gap-4">
           {CATEGORIES.map((cat) => {
             const Icon = cat.icon;
             const active = activeCategory.id === cat.id;
@@ -273,14 +234,14 @@ export default function LiveLocation() {
                   setSelectedFacility(null);
                 }}
                 className={`
-                  flex items-center gap-3 px-6 py-3.5 rounded-2xl whitespace-nowrap transition-all duration-500
+                  flex items-center gap-3 px-8 py-4 rounded-3xl whitespace-nowrap transition-all duration-500
                   ${active 
-                    ? "bg-primary-500 text-white shadow-xl shadow-primary-500/30 scale-105" 
+                    ? "bg-primary-900 text-white shadow-2xl scale-105" 
                     : "bg-primary-50/50 text-primary-400 hover:bg-primary-50 hover:text-primary-600"}
                 `}
               >
-                <Icon className={`w-5 h-5 ${active ? "animate-pulse" : ""}`} />
-                <span className="text-[11px] font-black uppercase tracking-widest">{cat.label}</span>
+                <Icon className={`w-5 h-5 ${active ? "animate-bounce" : ""}`} />
+                <span className="text-[11px] font-black uppercase tracking-widest italic">{cat.label}</span>
               </button>
             )
           })}
@@ -288,77 +249,61 @@ export default function LiveLocation() {
       </div>
 
       {/* 📋 RESULTS LIST */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4 bg-primary-50/30">
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-6 bg-primary-50/30">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-40 bg-white border border-primary-50 rounded-3xl animate-pulse p-8 space-y-4">
-              <div className="h-8 bg-primary-50 rounded-lg w-3/4" />
-              <div className="h-4 bg-primary-50 rounded-lg w-1/2" />
-            </div>
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-40 bg-white border border-primary-50 rounded-[2.5rem] animate-pulse p-8 space-y-4" />
           ))
         ) : facilities.length > 0 ? (
           facilities.map((f, i) => {
             const isSelected = selectedFacility?.id === f.id;
-            const topThree = i < 3;
-            
             return (
               <Card 
                 key={f.id}
                 onClick={() => setSelectedFacility(f)}
                 className={`
-                  group p-8 rounded-[2rem] border-2 transition-all duration-500 cursor-pointer overflow-hidden relative
+                  group p-10 rounded-[2.5rem] border-4 transition-all duration-700 cursor-pointer overflow-hidden relative
                   ${isSelected 
-                    ? "bg-white border-primary-500 shadow-2xl scale-[1.02] ring-8 ring-primary-500/5" 
-                    : "bg-white border-transparent hover:border-primary-100 shadow-xl shadow-primary-500/5 hover:-translate-y-1"}
+                    ? "bg-white border-primary-900 shadow-2xl scale-[1.02]" 
+                    : "bg-white border-transparent hover:border-primary-100 shadow-xl"}
                 `}
               >
-                {/* Visual Indicators */}
-                {topThree && !isSelected && (
-                  <div className="absolute top-0 right-10 px-4 py-1.5 bg-primary-50 text-primary-400 rounded-b-xl text-[9px] font-black uppercase tracking-widest">
-                    Recommended Node
-                  </div>
-                )}
-                
                 <div className="flex justify-between items-start">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`p-3 rounded-2xl ${isSelected ? "bg-primary-500 text-white shadow-lg" : "bg-primary-50 text-primary-400 group-hover:bg-primary-100 transition-all duration-500"}`}>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isSelected ? "bg-primary-900 text-white" : "bg-primary-50 text-primary-400 group-hover:rotate-12 transition-all"}`}>
                         <activeCategory.icon className="w-6 h-6" />
                       </div>
-                      <h4 className={`text-xl font-black tracking-tight leading-tight uppercase transition-all duration-500 ${isSelected ? "text-primary-900" : "text-primary-800"}`}>
+                      <h4 className="text-xl font-black text-primary-900 italic tracking-tight uppercase">
                         {f.name}
                       </h4>
                     </div>
-                    <div className="flex flex-col gap-2 pl-12">
+                    <div className="flex flex-col gap-2">
                       <div className="flex items-center gap-2 text-primary-400 text-[10px] font-black tracking-widest uppercase">
-                        <MapPin className="w-4 h-4 opacity-50" /> {f.address}
+                        <MapPin className="w-4 h-4" /> {f.address}
                       </div>
-                      <div className="flex items-center gap-2 text-primary-900 text-xs font-bold bg-primary-50/50 w-fit px-3 py-1 rounded-lg">
-                        <TrendingUp className="w-3.5 h-3.5 text-primary-500" /> {formatDistance(f.distance)} PROXIMITY
+                      <div className="flex items-center gap-2 text-primary-900 text-xs font-black bg-primary-100/50 w-fit px-4 py-2 rounded-xl">
+                        <TrendingUp className="w-4 h-4 text-primary-600" /> {formatDistance(f.distance)} PROXIMITY
                       </div>
                     </div>
                   </div>
-
-                  <div className="flex flex-col items-end gap-3 shrink-0">
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-400/10 text-yellow-600 rounded-xl text-[10px] font-black tracking-widest">
-                      <Star className="w-3.5 h-3.5 fill-yellow-400" /> {(4.5 + Math.random() * 0.4).toFixed(1)}
-                    </div>
-                  </div>
+                  <ChevronRight className={`w-8 h-8 text-primary-200 transition-all ${isSelected ? "translate-x-2 text-primary-900" : ""}`} />
                 </div>
 
                 {isSelected && (
-                  <div className="mt-8 pt-8 border-t border-primary-50 flex gap-4 animate-in slide-in-from-bottom-4 duration-500">
+                  <div className="mt-8 pt-8 border-t-2 border-primary-50 flex gap-4 animate-in slide-in-from-bottom-4 duration-700">
                     <Button 
-                      className="flex-1 py-7 rounded-2xl rounded-tr-none bg-primary-900 hover:bg-primary-500 shadow-2xl text-xs font-black uppercase tracking-widest shadow-primary-900/20"
-                      onClick={() => window.open(`tel:${f.phone}`)}
-                    >
-                      <Phone className="w-4 h-4 mr-2" /> Call Node
-                    </Button>
-                    <Button 
-                      className="flex-1 py-7 rounded-2xl rounded-tl-none bg-primary-500 hover:bg-primary-600 shadow-2xl text-xs font-black uppercase tracking-widest shadow-primary-500/20"
+                      className="flex-1 py-8 rounded-3xl bg-secondary-900 hover:bg-black text-white text-[11px] font-black uppercase tracking-widest"
                       onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lng}`)}
                     >
-                      <Navigation className="w-4 h-4 mr-2" /> Navigate Now
+                      <Navigation className="w-5 h-5 mr-3" /> Start Navigation
+                    </Button>
+                    <Button 
+                      disabled={f.phone === "N/A"}
+                      className="flex-1 py-8 rounded-3xl bg-primary-900 hover:bg-primary-700 text-white text-[11px] font-black uppercase tracking-widest disabled:opacity-30"
+                      onClick={() => window.open(`tel:${f.phone}`)}
+                    >
+                      <Phone className="w-5 h-5 mr-3" /> Contact Center
                     </Button>
                   </div>
                 )}
@@ -367,15 +312,13 @@ export default function LiveLocation() {
           })
         ) : (
           <div className="py-24 text-center space-y-6">
-            <div className="w-20 h-20 bg-primary-50 rounded-full flex items-center justify-center mx-auto opacity-50">
-               <Search className="w-10 h-10 text-primary-300" />
-            </div>
+            <Warehouse className="w-20 h-20 text-primary-100 mx-auto" />
             <div>
-              <p className="font-black text-primary-900 uppercase tracking-widest text-sm">No Medical Nodes Detected</p>
-              <p className="text-xs text-primary-400 mt-2 font-bold uppercase tracking-tight">Try expanding your search radius or sensor grid.</p>
+              <p className="font-black text-primary-900 uppercase tracking-widest text-sm italic">No Agricultural Hubs Found</p>
+              <p className="text-[10px] text-primary-400 mt-2 font-bold uppercase tracking-widest">Scanning local sensor grids for mandi centers...</p>
             </div>
-            <Button variant="outline" onClick={() => userCoords && fetchNearby(userCoords.lat, userCoords.lng)} className="rounded-full px-12 py-5 font-black uppercase tracking-widest border-primary-100">
-               Scan Environment
+            <Button onClick={() => userCoords && fetchNearby(userCoords.lat, userCoords.lng)} className="rounded-full px-12 py-5 bg-primary-900 text-white font-black uppercase shadow-xl">
+               Expand Scan Radius
             </Button>
           </div>
         )}

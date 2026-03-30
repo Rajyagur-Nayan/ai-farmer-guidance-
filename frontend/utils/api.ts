@@ -1,5 +1,22 @@
 import { syncManager } from "./syncManager";
 
+export interface MarketData {
+  crop: string;
+  mandi_price: string;
+  mandi_name: string;
+  trend: "up" | "down" | "steady";
+  global_price: string;
+  advice: string;
+  history: Array<{ date: string; price: number }>;
+  category?: string;
+}
+
+export interface MarketResponse {
+  categories: {
+    [key: string]: MarketData[];
+  };
+}
+
 /**
  * 🌾 Smart Farmer API Service Configuration
  * Production: https://ai-farmer-guidance.onrender.com
@@ -8,7 +25,7 @@ import { syncManager } from "./syncManager";
 const BACKEND_URL =
   process.env.NODE_ENV === "production"
     ? "https://ai-farmer-guidance.onrender.com"
-    : "http://127.0.0.1:8000";
+    : "http://localhost:8000";
 
 /**
  * Utility to handle caching for GET requests
@@ -28,9 +45,13 @@ export const apiService = {
   /**
    * Sends a message to the AI chat backend
    */
-  sendChatMessage: async (message: string): Promise<{ response: string }> => {
+  sendChatMessage: async (
+    message: string,
+    lat?: number,
+    lon?: number,
+  ): Promise<{ response: string }> => {
     if (typeof window !== "undefined" && !navigator.onLine) {
-      syncManager.addRequest("/chat", "POST", { message });
+      syncManager.addRequest("/chat", "POST", { message, lat, lon });
       return {
         response:
           "[Offline Mode] Your message has been queued and will be sent once you are back online.",
@@ -41,7 +62,7 @@ export const apiService = {
       const response = await fetch(`${BACKEND_URL}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, lat, lon }),
       });
 
       if (!response.ok) {
@@ -59,12 +80,16 @@ export const apiService = {
   /**
    * Sends a message to the AI voice backend
    */
-  sendVoiceMessage: async (message: string): Promise<{ response: string }> => {
+  sendVoiceMessage: async (
+    message: string,
+    lat?: number,
+    lon?: number,
+  ): Promise<{ response: string }> => {
     try {
       const response = await fetch(`${BACKEND_URL}/voice`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, lat, lon }),
       });
       if (!response.ok) throw new Error("Failed to get voice response");
       return await response.json();
@@ -171,13 +196,28 @@ export const apiService = {
   /**
    * Fetches market prices and trends (with caching)
    */
-  getMarketPrices: async () => {
-    const cache = getCache("market_prices");
+  getMarketPrices: async (
+    crop?: string,
+    lat?: number,
+    lon?: number,
+  ): Promise<MarketResponse> => {
+    const cacheKey = crop ? `market_prices_${crop}` : "market_prices";
+    const cache = getCache(cacheKey);
+
     try {
-      const response = await fetch(`${BACKEND_URL}/market/market-prices`);
+      let url = `${BACKEND_URL}/market/market-prices`;
+      const params = new URLSearchParams();
+      if (crop) params.append("crop", crop);
+      if (lat) params.append("lat", lat.toString());
+      if (lon) params.append("lon", lon.toString());
+
+      const queryString = params.toString();
+      if (queryString) url += `?${queryString}`;
+
+      const response = await fetch(url);
       if (!response.ok) throw new Error("Failed to fetch market data");
       const data = await response.json();
-      setCache("market_prices", data);
+      setCache(cacheKey, data);
       return data;
     } catch (error) {
       if (cache) return cache;
@@ -197,6 +237,34 @@ export const apiService = {
       return await response.json();
     } catch (error) {
       console.error("Weather API Error:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Fetches real-time UV index metadata
+   */
+  getUVIndex: async (lat: number, lon: number) => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/uv?lat=${lat}&lon=${lon}`);
+      if (!response.ok) throw new Error("UV service offline.");
+      return await response.json();
+    } catch (error) {
+      console.error("UV API Error:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Fetches real-time soil moisture telemetry
+   */
+  getSoilMoisture: async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/soil`);
+      if (!response.ok) throw new Error("IoT hardware link Failure.");
+      return await response.json();
+    } catch (error) {
+      console.error("Soil API Error:", error);
       throw error;
     }
   },
