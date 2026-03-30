@@ -77,8 +77,8 @@ const ImageUpload: React.FC = () => {
         setError(null);
         setResult(null);
 
-        // Path to the reference image provided in the prompt
-        const sampleUrl = "/images/image copy.png";
+        // Reference Sample Image for Testing
+        const sampleUrl = "/images/image-copy.png";
         setPreview(sampleUrl);
 
         try {
@@ -122,10 +122,12 @@ const ImageUpload: React.FC = () => {
                         {!preview && !loading && (
                             <button 
                                 onClick={handleTrySample}
-                                className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-100 transition-all border border-emerald-200 flex items-center gap-2 group"
+                                className="px-6 py-3 bg-emerald-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-black transition-all shadow-xl shadow-emerald-500/20 flex items-center gap-3 group animate-in zoom-in duration-500 hover:scale-105 active:scale-95"
                             >
-                                <ImageIcon className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
-                                Try Sample
+                                <div className="p-1 bg-white/20 rounded-lg">
+                                    <ImageIcon className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+                                </div>
+                                Try Analysis Sample
                             </button>
                         )}
                     </div>
