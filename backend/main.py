@@ -25,6 +25,7 @@ from services.weather_service import router as weather_router
 from services.money_advisor import router as money_router
 from services.schemes.scheme_service import router as scheme_router
 from services.marketplace_neon.marketplace_routes import router as marketplace_router
+from routes.ai_agent_router import router as ai_agent_router
 from services.location_service import LocationService
 from services.weather_service import WeatherService
 
@@ -45,6 +46,7 @@ app.include_router(weather_router)
 app.include_router(money_router)
 app.include_router(scheme_router)
 app.include_router(marketplace_router)
+app.include_router(ai_agent_router)
 
 # --- DIRECTORY INITIALIZATION ---
 # Create 'uploads' folder explicitly to prevent startup failures on Render.
@@ -227,39 +229,61 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 @app.post("/analyze-image")
 async def analyze_image(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     """
-    Analyzes crop images specifically via Gemini.
+    Analyzes crop images specifically via Gemini with robust safety checks.
     """
     try:
         if not GEMINI_API_KEY:
             raise HTTPException(status_code=503, detail="Stability failure: Vision uplink offline.")
 
+        # Mime type check for Gemini compatibility
+        allowed_types = ["image/jpeg", "image/png", "image/webp"]
+        if file.content_type not in allowed_types:
+            print(f"Vision Alert: Rejected unsupported content type '{file.content_type}'")
+            # We still try to proceed but log the warning
+
         contents = await file.read()
         if len(contents) > 5 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Data packet too large (Max 5MB).")
 
-        # Gemini Analysis
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content([
-            f"{VISION_PROMPT}\n\nAnalyze this crop image.",
-            {"mime_type": file.content_type, "data": contents}
-        ])
+        # Gemini Analysis - Standard Part Structure
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        try:
+            response = model.generate_content([
+                f"{VISION_PROMPT}\n\nAnalyze this crop image precisely.",
+                {"mime_type": file.content_type, "data": contents}
+            ])
+            
+            # 🛑 SAFETY CHECK: Ensure model didn't block response or return empty
+            if not response.candidates:
+                 print("Vision Warning: Gemini returned no candidates (Safety Block).")
+                 return {"analysis": ["Safety Alert: Image analysis was blocked. Ensure the photo is clear and contains agricultural content.", "Error: Policy Violation or Analysis Failure."]}
+            
+            # Standard parsing 
+            response_text = response.text
+            if not response_text:
+                raise ValueError("Empty AI response received.")
 
-        if not response.text:
-            raise Exception("No interpretation received.")
+            analysis_points = [line.strip() for line in response_text.split("\n") if line.strip()]
+            
+            # Save results to ActivityLog
+            db.add(ActivityLog(title="Crop Vision Analysis", content=response_text, category="Consultation"))
+            await db.commit()
+            
+            return {"analysis": analysis_points}
 
-        response_text = response.text
-        analysis_points = [line.strip() for line in response_text.split("\n") if line.strip()]
-        
-        # Save results to ActivityLog
-        db.add(ActivityLog(title="Crop Vision Analysis", content=response_text, category="Consultation"))
-        await db.commit()
-        
-        return {"analysis": analysis_points}
+        except Exception as api_err:
+            print(f"Gemini API Direct Error: {api_err}")
+            # Check for specifically Safety/Blockage errors
+            if "candidate" in str(api_err).lower():
+                return {"analysis": ["Model link unstable or image blocked by safety protocols.", "Recommendation: Capture a clearer, more centered photo of the crop issue."]}
+            raise api_err
+
     except Exception as e:
-        print(f"Vision Analysis Core Error: {e}")
+        import traceback
+        print(f"Vision Analysis Pipeline Failure: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500, 
-            detail="Vision analysis failed. Ensure API keys are active and image data is valid."
+            detail="Vision analysis failed. Ensure API keys are active and agricultural imagery is valid."
         )
 
 

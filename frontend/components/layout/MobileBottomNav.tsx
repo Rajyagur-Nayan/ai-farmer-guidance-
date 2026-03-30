@@ -8,6 +8,7 @@ import {
   User,
   Activity,
   MapPin,
+  Brain,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -17,7 +18,8 @@ const MobileBottomNav: React.FC = () => {
 
   const navItems = [
     { name: "Home", icon: Home, path: "/" },
-    { name: "Assistent", icon: MapPin, path: "/voice" },
+    { name: "Agent", icon: Brain, path: "/ai-agent" },
+    { name: "Voice", icon: MapPin, path: "/voice" },
     { name: "AI Chat", icon: MessageSquare, path: "/chat" },
     { name: "Profile", icon: User, path: "/profile" },
   ];

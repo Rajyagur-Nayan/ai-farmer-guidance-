@@ -20,6 +20,7 @@ import {
   PiggyBank,
   ShieldCheck,
   Map as MapIcon,
+  Brain,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -36,6 +37,7 @@ export default function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
 
   const menuItems = [
     { name: "Farmer Home", icon: Home, path: "/" },
+    { name: "Central AI Agent", icon: Brain, path: "/ai-agent" },
     { name: "Voice Assistant", icon: Mic, path: "/voice" },
     { name: "AI Advisory Chat", icon: MessageSquare, path: "/chat" },
     { name: "Crop Image Analysis", icon: Camera, path: "/diagnosis" },
