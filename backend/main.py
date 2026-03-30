@@ -246,7 +246,7 @@ async def analyze_image(file: UploadFile = File(...), db: AsyncSession = Depends
             raise HTTPException(status_code=400, detail="Data packet too large (Max 5MB).")
 
         # Gemini Analysis - Stable Model Identifier (1.5-flash)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         try:
             response = model.generate_content([
                 f"{VISION_PROMPT}\n\nAnalyze this crop image precisely.",
