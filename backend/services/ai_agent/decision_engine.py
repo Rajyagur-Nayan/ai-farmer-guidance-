@@ -39,14 +39,14 @@ async def run_ai_decision(
     4. Next crop recommendation
     5. Income improvement tips
 
-    Response format: JSON ONLY
+    Response format: JSON ONLY. Use PURE NUMBERS for confidence (0.0 to 1.0) and other numeric fields.
     {{
        "final_action": "...",
        "sell_decision": "Selling now/Wait for higher prices/Partial sell",
        "crop_advice": "...",
        "risk_alert": "Low/Medium/High + reason",
        "next_crop": "...",
-       "confidence": "0.0~1.0 score",
+       "confidence": 0.95,
        "ai_reasoning": "..."
     }}
     """

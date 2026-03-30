@@ -2,9 +2,17 @@ from typing import Dict, Any
 
 def validate_response(output: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Applies safety guardrails to AI-generated agricultural advice.
+    Applies safety guardrails with robust numeric parsing.
     """
-    confidence = float(output.get("confidence", "0.8"))
+    raw_confidence = str(output.get("confidence", "0.8"))
+    
+    # Safely convert to float by stripping non-numeric text
+    try:
+        # Extract first numeric-ish part (e.g., "0.8 score" -> "0.8")
+        clean_conf = "".join(c for c in raw_confidence if c.isdigit() or c == '.')
+        confidence = float(clean_conf) if clean_conf else 0.8
+    except (ValueError, TypeError):
+        confidence = 0.8
     
     # Rule 1: Risky Financial Advice Check
     if "loan" in str(output).lower() or "invest all" in str(output).lower():

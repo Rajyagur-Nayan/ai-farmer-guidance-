@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Brain, Sparkles, TrendingUp, AlertTriangle, ShieldCheck, ChevronRight, Loader2, DollarSign, Sprout } from "lucide-react";
+import { getApiUrl } from "@/utils/config";
 
 export const AIDecisionPanel: React.FC = () => {
   const [crop, setCrop] = useState("Wheat");
@@ -13,8 +14,8 @@ export const AIDecisionPanel: React.FC = () => {
     setLoading(true);
     setDecision(null);
     try {
-      // Direct call to the new Agent Endpoint
-      const response = await fetch("http://localhost:8000/ai-agent/ai-decision", {
+      // Direct call to the new Agent Endpoint (Dynamic URL)
+      const response = await fetch(getApiUrl("ai-agent/ai-decision"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

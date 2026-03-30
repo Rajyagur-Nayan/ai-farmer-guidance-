@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { PlayCircle, Globe, CloudSun, BarChart3, Fingerprint, CheckCircle2, Loader2, ArrowRightCircle } from "lucide-react";
+import { getApiUrl } from "@/utils/config";
 
 export const WorkflowPanel: React.FC = () => {
     const [status, setStatus] = useState<"idle" | "running" | "completed">("idle");
@@ -27,7 +28,7 @@ export const WorkflowPanel: React.FC = () => {
         }
 
         try {
-            const response = await fetch("http://localhost:8000/ai-agent/ai-workflow", {
+            const response = await fetch(getApiUrl("ai-agent/ai-workflow"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({

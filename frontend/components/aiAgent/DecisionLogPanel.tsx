@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { History, Search, FileText, Database, ShieldAlert, ChevronRight, Activity } from "lucide-react";
+import { getApiUrl } from "@/utils/config";
 
 export const DecisionLogPanel: React.FC = () => {
     const [logs, setLogs] = useState<any[]>([]);
@@ -10,7 +11,7 @@ export const DecisionLogPanel: React.FC = () => {
     const fetchLogs = async () => {
         setLoading(true);
         try {
-            const response = await fetch("http://localhost:8000/ai-agent/ai-logs");
+            const response = await fetch(getApiUrl("ai-agent/ai-logs"));
             const data = await response.json();
             // 🛑 CRITICAL FIX: Ensure data is an array before setting state
             if (Array.isArray(data)) {
