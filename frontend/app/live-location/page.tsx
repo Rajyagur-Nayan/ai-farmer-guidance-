@@ -1,9 +1,22 @@
 "use client";
 
 import React from "react";
+import dynamic from "next/dynamic";
 import Layout from "@/components/layout/Layout";
-import LiveLocation from "@/components/LiveLocation";
-import { MapPin, Info } from "lucide-react";
+import { MapPin, Info, Loader2 } from "lucide-react";
+
+// 📡 SSR-Safe Dynamic Import for Leaflet/Window dependencies
+const LiveLocation = dynamic(() => import("@/components/LiveLocation"), { 
+  ssr: false,
+  loading: () => (
+    <div className="h-full w-full flex flex-col items-center justify-center space-y-6 bg-primary-50/10">
+      <Loader2 className="w-16 h-16 text-primary-500 animate-spin" />
+      <p className="text-[11px] font-black text-primary-400 uppercase tracking-[0.4em] animate-pulse italic">
+        Syncing Global Positioning...
+      </p>
+    </div>
+  )
+});
 
 export default function LiveLocationPage() {
   return (
